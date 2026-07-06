@@ -214,6 +214,29 @@ app.post('/api/customers/bulk-save-and-export', async (req, res) => {
     }
 });
 
+// ──────────────────────────────────────────────────────
+// [신규 API] 생성된 엑셀 파일 다운로드
+// ──────────────────────────────────────────────────────
+app.get('/api/download', (req, res) => {
+    const filePath = req.query.path;
+    if (!filePath) {
+        return res.status(400).send('파일 경로가 제공되지 않았습니다.');
+    }
+    
+    // 파일명 추출
+    const fileName = path.basename(filePath);
+    
+    // 클라이언트 브라우저로 파일 전송 (다운로드 트리거)
+    res.download(filePath, fileName, (err) => {
+        if (err) {
+            console.error('파일 다운로드 중 에러:', err);
+            if (!res.headersSent) {
+                res.status(500).send('파일 다운로드 실패');
+            }
+        }
+    });
+});
+
 // React SPA fallback
 app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));

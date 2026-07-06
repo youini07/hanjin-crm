@@ -360,8 +360,13 @@ function App() {
       if (response.data.success) {
         setStatus({
           type: 'success',
-          message: `✅ ${response.data.message} — 엑셀 파일이 생성되었습니다.`
+          message: `✅ ${response.data.message} — 엑셀 파일 다운로드가 시작됩니다.`
         });
+
+        // 엑셀 파일 다운로드 트리거
+        if (response.data.excelPath) {
+          window.location.href = `${API_URL}/download?path=${encodeURIComponent(response.data.excelPath)}`;
+        }
 
         // 내보내기 성공 후 그리드 초기화
         setGridRowsAndSync([]);
