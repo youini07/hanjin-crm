@@ -6,10 +6,11 @@ import { io } from 'socket.io-client';
 import KakaoTextParser from './components/KakaoTextParser';
 import ShippingGrid, { type GridRow } from './components/ShippingGrid';
 
-// 외부(스마트폰) 접속 시 해당 기기의 IP(Tailscale IP 등)를 그대로 사용하도록 hostname 동적 할당
-const HOST = window.location.hostname || 'localhost';
-const API_URL = `http://${HOST}:3001/api`;
-const socket = io(`http://${HOST}:3001`);
+// 로컬 개발 환경인지 판별 (localhost 또는 내부 IP)
+const isDev = window.location.hostname === 'localhost' || window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.');
+// 웹 서버(Railway) 환경에서는 상대 경로('/api')를 사용하여 포트 문제(3001) 및 HTTPS 혼합 콘텐츠 에러를 방지
+const API_URL = isDev ? `http://${window.location.hostname}:3001/api` : '/api';
+const socket = isDev ? io(`http://${window.location.hostname}:3001`) : io();
 
 /**
  * 고유 임시 ID 생성기
