@@ -4,11 +4,21 @@ const { upsertCustomer } = require('./db');
 
 const SPREADSHEET_ID = '1-hqwcXk8DJ1GJxTXZGhAXkV_9_ZCuhdsbTDZSgjL5QI';
 
-// 구글 API 인증
-const auth = new google.auth.GoogleAuth({
-    keyFile: path.join(process.cwd(), 'service_account.json'),
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+let auth;
+if (process.env.GOOGLE_CREDENTIALS) {
+    // Railway 환경: 환경변수에서 인증서 정보 로드
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+} else {
+    // 로컬 환경: 파일에서 인증서 정보 로드
+    auth = new google.auth.GoogleAuth({
+        keyFile: path.join(process.cwd(), 'service_account.json'),
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+}
 
 let FIRST_SHEET_NAME = null;
 
