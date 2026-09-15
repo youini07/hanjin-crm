@@ -208,19 +208,34 @@ function App() {
   };
 
   // ──────────────────────────────────────────────────────
-  // [폼 저장] 폼 데이터를 그리드에 반영
-  // 왜 DB에 바로 안 저장하나: 사용자 요구 - 내보내기 시에만 일괄 저장
+  // [폼 저장] 폼 데이터를 그리드에 반영 및 DB 즉시 저장
+  // 왜: 수정하거나 등록 시 즉시 DB에 저장하여 데이터 유실 방지
   // ──────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!phone) {
-      setStatus({ type: 'error', message: '전화번호는 필수 항목입니다.' });
+    if (!phone || !name.trim()) {
+      setStatus({ type: 'error', message: '전화번호와 이름은 필수 항목입니다.' });
       return;
     }
 
     const normalizedPhone = phone.replace(/[^0-9]/g, '');
     const savedRowId = activeRowId; // 수정 완료 후 원래 위치로 스크롤하기 위해 임시 보관
+
+    // DB 즉시 저장 요청
+    try {
+      await axios.post(`${API_URL}/customers/save`, {
+        phone: normalizedPhone,
+        name,
+        zipcode,
+        address,
+        detail_address: detailAddress
+      });
+    } catch (error) {
+      console.error('Immediate save error:', error);
+      setStatus({ type: 'error', message: 'DB 즉시 저장 중 오류가 발생했습니다.' });
+      return;
+    }
 
     if (activeRowId) {
       // 기존 그리드 행 수정 (덮어쓰기)

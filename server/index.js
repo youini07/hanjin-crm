@@ -92,6 +92,28 @@ app.post('/api/customers/save-and-export', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────
+// [신규 API] 고객 데이터 즉시 저장 (단건)
+// 왜: 폼에서 수정 또는 신규 추가 시 즉각적으로 DB에 반영하기 위함
+// ──────────────────────────────────────────────────────
+app.post('/api/customers/save', async (req, res) => {
+    let { phone, name, zipcode, address, detail_address } = req.body;
+    
+    if (!phone || !name) {
+        return res.status(400).json({ error: 'Phone and Name are required' });
+    }
+
+    phone = phone.replace(/[^0-9]/g, '');
+
+    try {
+        await upsertCustomer({ phone, name, zipcode, address, detail_address });
+        res.json({ success: true, message: 'Saved to DB immediately' });
+    } catch (err) {
+        console.error('Immediate Save Error:', err);
+        res.status(500).json({ error: 'Failed to save immediately: ' + err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────
 // [신규 API] 전화번호 배열로 한 번에 고객 매칭
 // 왜: 카카오톡에서 추출한 여러 전화번호를 한 번에 DB 조회하기 위함
 // ──────────────────────────────────────────────────────
