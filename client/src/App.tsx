@@ -29,6 +29,7 @@ function App() {
   const [zipcode, setZipcode] = useState('');
   const [address, setAddress] = useState('');
   const [detailAddress, setDetailAddress] = useState('');
+  const [quantity, setQuantity] = useState<number>(1);
 
   // ──────────────────────────────────────────────────────
   // [UI 상태] 로딩, 메시지, 매칭 로딩
@@ -166,6 +167,7 @@ function App() {
             zipcode: r.customer.zipcode || '',
             address: r.customer.address || '',
             detail_address: r.customer.detail_address || '',
+            quantity: 1,
           }));
 
         if (newRows.length === 0) {
@@ -198,6 +200,7 @@ function App() {
     setZipcode(row.zipcode);
     setAddress(row.address);
     setDetailAddress(row.detail_address);
+    setQuantity(row.quantity || 1);
     setIsExistingCustomer(!row._isNew);
     setStatus({ type: 'info', message: `[${row.phone}] 행이 선택됨 — 수정 후 [저장] 버튼을 누르세요.` });
     
@@ -248,6 +251,7 @@ function App() {
             zipcode,
             address,
             detail_address: detailAddress,
+            quantity,
             _isDirty: true, // 수정됨 표시
           };
         }
@@ -273,6 +277,7 @@ function App() {
         zipcode,
         address,
         detail_address: detailAddress,
+        quantity,
       };
       setGridRowsAndSync(prev => [...prev, newRow]);
       setStatus({ type: 'success', message: '그리드에 새 고객이 추가되었습니다.' });
@@ -296,6 +301,7 @@ function App() {
     setZipcode('');
     setAddress('');
     setDetailAddress('');
+    setQuantity(1);
     setActiveRowId(null);
     setIsExistingCustomer(false);
   };
@@ -369,6 +375,7 @@ function App() {
         zipcode: r.zipcode,
         address: r.address,
         detail_address: r.detail_address,
+        quantity: r.quantity || 1,
       }));
 
       const response = await axios.post(`${API_URL}/customers/bulk-save-and-export`, { customers });
@@ -505,9 +512,21 @@ function App() {
               </div>
             </div>
 
-            {/* 주소 검색 */}
+            {/* 주소 검색 및 수량 */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">주소</label>
+              <div className="flex justify-between items-end mb-1.5">
+                <label className="block text-xs font-semibold text-slate-600">주소</label>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-600">출력 수량(송장 개수)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-16 rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-1 text-sm text-center font-bold text-blue-600 bg-blue-50"
+                  />
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* 좌측: 기본 주소 검색 */}
                 <div className="flex gap-2">

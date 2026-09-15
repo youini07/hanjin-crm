@@ -20,6 +20,7 @@ export interface GridRow {
   zipcode: string;
   address: string;
   detail_address: string;
+  quantity?: number;
 }
 
 interface ShippingGridProps {
@@ -130,6 +131,7 @@ export default function ShippingGrid({
                   </th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider w-10">#</th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">이름</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-12">수량</th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">전화번호</th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">우편번호</th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">주소</th>
@@ -167,6 +169,9 @@ export default function ShippingGrid({
                       <td className="px-3 py-2.5 text-slate-400 font-mono text-xs">{index + 1}</td>
                       <td className="px-3 py-2.5 font-medium text-slate-800">
                         {row.name || <span className="text-red-400 text-xs italic">미입력</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-slate-700 font-bold text-xs">
+                        {row.quantity && row.quantity > 1 ? <span className="text-blue-600">{row.quantity}</span> : row.quantity || 1}
                       </td>
                       <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">
                         {formatPhone(row.phone)}

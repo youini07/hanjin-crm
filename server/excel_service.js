@@ -39,7 +39,7 @@ async function appendToDailyExcel(customer) {
 
     const worksheet = workbook.getWorksheet(1); // Get first sheet
 
-    const { name, phone, zipcode, address, detail_address } = customer;
+    const { name, phone, zipcode, address, detail_address, quantity } = customer;
     
     // Construct full address string
     const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
@@ -85,6 +85,11 @@ async function appendToDailyExcel(customer) {
     
     targetRow.getCell(6).value = newRow[6];
     
+    // G열(수량): 2 이상일 때만 기록
+    if (quantity && quantity >= 2) {
+        targetRow.getCell(7).value = quantity;
+    }
+    
     // H열(전화번호): 스타일 전체를 덮어씌워 numFmt 확실히 적용
     const cellH = targetRow.getCell(8);
     cellH.style = { ...cellH.style, numFmt: '@' };
@@ -129,7 +134,7 @@ async function appendMultipleToDailyExcel(customers) {
 
     // 각 고객 데이터를 연속 행에 추가
     for (const customer of customers) {
-        const { name, phone, zipcode, address, detail_address } = customer;
+        const { name, phone, zipcode, address, detail_address, quantity } = customer;
 
         const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
         const addressWithNote = fullAddress ? `${fullAddress} (외국인입니다 사진부탁해요)` : '';
@@ -149,6 +154,10 @@ async function appendMultipleToDailyExcel(customers) {
         cellE.value = safeZipcode;
 
         targetRow.getCell(6).value = addressWithNote;
+
+        if (quantity && quantity >= 2) {
+            targetRow.getCell(7).value = quantity;
+        }
 
         const cellH = targetRow.getCell(8);
         cellH.style = { ...cellH.style, numFmt: '@' };
