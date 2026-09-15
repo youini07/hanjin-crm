@@ -36,6 +36,7 @@ interface ShippingGridProps {
   checkedIds: Set<string>;
   onCheckToggle: (tempId: string) => void;
   onCheckAll: () => void;
+  onQuantityChange: (tempId: string, quantity: number) => void;
 }
 
 /** 전화번호 포맷팅 */
@@ -63,6 +64,7 @@ export default function ShippingGrid({
   checkedIds,
   onCheckToggle,
   onCheckAll,
+  onQuantityChange,
 }: ShippingGridProps) {
   const validCount = rows.filter(r => r.name && r.phone).length;
   const newCount = rows.filter(r => r._isNew).length;
@@ -170,8 +172,14 @@ export default function ShippingGrid({
                       <td className="px-3 py-2.5 font-medium text-slate-800">
                         {row.name || <span className="text-red-400 text-xs italic">미입력</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-center text-slate-700 font-bold text-xs">
-                        {row.quantity && row.quantity > 1 ? <span className="text-blue-600">{row.quantity}</span> : row.quantity || 1}
+                      <td className="px-3 py-2.5 text-center text-slate-700 font-bold text-xs" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="number"
+                          min="1"
+                          value={row.quantity || 1}
+                          onChange={(e) => onQuantityChange(row._tempId, Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-14 text-center rounded border-slate-300 focus:border-emerald-500 focus:ring-emerald-500 py-1 px-1 bg-white shadow-sm"
+                        />
                       </td>
                       <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">
                         {formatPhone(row.phone)}
