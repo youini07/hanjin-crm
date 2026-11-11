@@ -3,7 +3,7 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const dayjs = require('dayjs');
 
-const dataDir = process.env.DATA_DIR || process.cwd();
+const dataDir = process.env.DATA_DIR || __dirname;
 const DB_FOLDER = path.join(dataDir, '고객데이터베이스');
 const TEMPLATE_FILE = path.join(DB_FOLDER, '서식_한진-기본.xlsx');
 
@@ -39,11 +39,17 @@ async function appendToDailyExcel(customer) {
 
     const worksheet = workbook.getWorksheet(1); // Get first sheet
 
-    const { name, phone, zipcode, address, detail_address, quantity } = customer;
+    const { name, phone, zipcode, address, detail_address, quantity, item_memo } = customer;
     
     // Construct full address string
     const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
     const addressWithNote = fullAddress ? `${fullAddress} (외국인입니다 사진부탁해요)` : '';
+
+    // 우편번호가 숫자로 들어올 수 있으므로, 무조건 문자열로 변환 후 5자리로 맞춤 (예: 8579 → "08579")
+    const safeZipcode = zipcode ? String(zipcode).padStart(5, '0') : '';
+    const safePhone = phone ? String(phone) : '';
+    // H열(품목명/비고): 구매상품명(item_memo)이 있으면 우선 기록하고, 없으면 기존처럼 전화번호 기록
+    const safeMemo = item_memo && String(item_memo).trim() ? String(item_memo).trim() : safePhone;
 
     // Create a new row array. ExcelJS uses 1-based indexing for columns.
     const newRow = [];
@@ -51,7 +57,7 @@ async function appendToDailyExcel(customer) {
     newRow[2] = phone;                // B: 전화번호
     newRow[5] = zipcode;              // E: 우편번호
     newRow[6] = addressWithNote;      // F: 주소+상세주소+메모
-    newRow[8] = phone;                // H: 전화번호
+    newRow[8] = safeMemo;             // H: 품목명(비고) 또는 전화번호
 
     // Find the first empty row by checking if column 1 (이름) and column 2 (전화번호) are empty
     let targetRowNumber = 2;
@@ -64,10 +70,6 @@ async function appendToDailyExcel(customer) {
         }
         targetRowNumber++;
     }
-
-    // 우편번호가 숫자로 들어올 수 있으므로, 무조건 문자열로 변환 후 5자리로 맞춤 (예: 8579 → "08579")
-    const safeZipcode = zipcode ? String(zipcode).padStart(5, '0') : '';
-    const safePhone = phone ? String(phone) : '';
 
     const targetRow = worksheet.getRow(targetRowNumber);
 
@@ -90,10 +92,10 @@ async function appendToDailyExcel(customer) {
         targetRow.getCell(7).value = quantity;
     }
     
-    // H열(전화번호): 스타일 전체를 덮어씌워 numFmt 확실히 적용
+    // H열(품목명/비고): 구매상품명 요약 또는 전화번호 기록 (주문번호는 한진엑셀에 미표기)
     const cellH = targetRow.getCell(8);
     cellH.style = { ...cellH.style, numFmt: '@' };
-    cellH.value = safePhone;
+    cellH.value = safeMemo;
     
     // 행 데이터를 확정(commit)하여 ExcelJS 내부 캐시 반영
     targetRow.commit();
@@ -134,12 +136,14 @@ async function appendMultipleToDailyExcel(customers) {
 
     // 각 고객 데이터를 연속 행에 추가
     for (const customer of customers) {
-        const { name, phone, zipcode, address, detail_address, quantity } = customer;
+        const { name, phone, zipcode, address, detail_address, quantity, item_memo } = customer;
 
         const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
         const addressWithNote = fullAddress ? `${fullAddress} (외국인입니다 사진부탁해요)` : '';
         const safeZipcode = zipcode ? String(zipcode).padStart(5, '0') : '';
         const safePhone = phone ? String(phone) : '';
+        // H열(품목명/비고): 구매상품명(item_memo)이 있으면 우선 기록하고, 없으면 기존처럼 전화번호 기록
+        const safeMemo = item_memo && String(item_memo).trim() ? String(item_memo).trim() : safePhone;
 
         const targetRow = worksheet.getRow(targetRowNumber);
 
@@ -159,9 +163,10 @@ async function appendMultipleToDailyExcel(customers) {
             targetRow.getCell(7).value = quantity;
         }
 
+        // H열(품목명/비고): 구매상품명 요약 또는 전화번호 기록 (주문번호는 한진엑셀에 미표기)
         const cellH = targetRow.getCell(8);
         cellH.style = { ...cellH.style, numFmt: '@' };
-        cellH.value = safePhone;
+        cellH.value = safeMemo;
 
         targetRow.commit();
         targetRowNumber++;

@@ -1,11 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const { getCustomerByPhone, getCustomersByPhones, upsertCustomer } = require('./db');
 const { appendToDailyExcel, appendMultipleToDailyExcel } = require('./excel_service');
 const { syncFromSheetToDB } = require('./google_sheets');
+const { parseGripExcelBuffer, parseGripCsvText } = require('./grip_parser');
 
 const app = express();
 const server = http.createServer(app);
@@ -39,7 +41,7 @@ io.on('connection', (socket) => {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // 정적 프론트엔드 파일 서빙
 app.use(express.static(path.join(__dirname, 'public')));
@@ -177,6 +179,82 @@ app.post('/api/customers/bulk-match', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────
+// [신규 API] 그립(Grip) 판매내역서 파싱 및 동일 고객 묶기
+// 왜: 엑셀(.xlsx) 또는 CSV 데이터를 받아 동일 고객의 여러 구매 상품을 묶고
+// H열 상품명('외 N개') 요약 및 주문번호를 추출하여 그리드에 전달하기 위함
+// ──────────────────────────────────────────────────────
+app.post('/api/grip/parse', async (req, res) => {
+    const { fileBase64, csvText, visibleCount = 2 } = req.body;
+
+    try {
+        let groupedItems = [];
+        if (fileBase64) {
+            const buffer = Buffer.from(fileBase64, 'base64');
+            groupedItems = await parseGripExcelBuffer(buffer, Number(visibleCount) || 2);
+        } else if (csvText) {
+            groupedItems = parseGripCsvText(csvText, Number(visibleCount) || 2);
+        } else {
+            return res.status(400).json({ error: '업로드할 파일(fileBase64) 또는 텍스트(csvText)가 필요합니다.' });
+        }
+
+        // 기존 DB에 등록된 전화번호인지 여부 확인
+        const phones = groupedItems.map(item => item.phone).filter(Boolean);
+        const existingCustomers = await getCustomersByPhones(phones);
+        const existingPhoneSet = new Set(existingCustomers.map(c => c.phone));
+
+        const items = groupedItems.map(item => ({
+            ...item,
+            foundInDb: existingPhoneSet.has(item.phone)
+        }));
+
+        res.json({
+            success: true,
+            items
+        });
+    } catch (err) {
+        console.error('Grip Parse Error:', err);
+        res.status(500).json({ error: '그립 판매내역서 분석 중 오류 발생: ' + err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────
+// [신규 API] 루트 폴더의 최근 그립 주문 엑셀 파일 즉시 불러오기
+// ──────────────────────────────────────────────────────
+app.get('/api/grip/sample', async (req, res) => {
+    try {
+        const rootDir = path.join(__dirname, '..');
+        const files = fs.readdirSync(rootDir).filter(f => f.startsWith('주문_') && f.endsWith('.xlsx'));
+        if (files.length === 0) {
+            return res.status(404).json({ error: '프로젝트 폴더에 주문 엑셀 파일이 없습니다.' });
+        }
+        // 가장 최근 파일 선택
+        files.sort().reverse();
+        const filePath = path.join(rootDir, files[0]);
+        const buffer = fs.readFileSync(filePath);
+        const visibleCount = Number(req.query.visibleCount) || 2;
+        const groupedItems = await parseGripExcelBuffer(buffer, visibleCount);
+
+        const phones = groupedItems.map(item => item.phone).filter(Boolean);
+        const existingCustomers = await getCustomersByPhones(phones);
+        const existingPhoneSet = new Set(existingCustomers.map(c => c.phone));
+
+        const items = groupedItems.map(item => ({
+            ...item,
+            foundInDb: existingPhoneSet.has(item.phone)
+        }));
+
+        res.json({
+            success: true,
+            fileName: files[0],
+            items
+        });
+    } catch (err) {
+        console.error('Grip Sample Load Error:', err);
+        res.status(500).json({ error: '주문 파일 불러오기 실패: ' + err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────
 // [신규 API] 여러 고객 일괄 저장 + 엑셀 내보내기
 // 왜: 그리드에서 수정한 데이터를 한 번에 DB 저장 + 엑셀 생성
 // 내보내기 시에만 DB 저장 (임시 상태 → 확정)
@@ -264,9 +342,44 @@ app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 서버 시작 + 구글 시트 동기화
+// 서버 시작 + 구글 시트 동기화 + 최근 그립 주문파일 초기 로드
 server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     // 서버가 켜질 때 백그라운드에서 구글 시트 데이터를 로컬 DB로 동기화
     await syncFromSheetToDB();
+
+    // 루트 폴더에 첨부된 그립 주문 파일이 있고 그리드가 비어있다면 초기 리스트로 자동 세팅
+    try {
+        const rootDir = path.join(__dirname, '..');
+        const files = fs.readdirSync(rootDir).filter(f => f.startsWith('주문_') && f.endsWith('.xlsx'));
+        if (files.length > 0 && sharedGridRows.length === 0) {
+            files.sort().reverse();
+            const samplePath = path.join(rootDir, files[0]);
+            const buf = fs.readFileSync(samplePath);
+            const grouped = await parseGripExcelBuffer(buf, 2);
+            const phones = grouped.map(item => item.phone).filter(Boolean);
+            const existingCustomers = await getCustomersByPhones(phones);
+            const existingPhoneSet = new Set(existingCustomers.map(c => c.phone));
+
+            sharedGridRows = grouped.map((c, idx) => ({
+                _tempId: `init_grip_${Date.now()}_${idx}`,
+                _isNew: !existingPhoneSet.has(c.phone),
+                _isSelected: false,
+                _isDirty: false,
+                order_number: c.order_number,
+                name: c.name,
+                phone: c.phone,
+                zipcode: c.zipcode,
+                address: c.address,
+                detail_address: c.detail_address,
+                item_memo: c.item_memo,
+                products: c.products,
+                quantity: c.quantity || 1
+            }));
+            io.emit('grid_updated', sharedGridRows);
+            console.log(`✅ 초기 그립 판매내역서(${files[0]})에서 ${sharedGridRows.length}명의 고객 리스트를 자동 로드했습니다.`);
+        }
+    } catch (err) {
+        console.error('초기 그립 파일 로드 중 오류(무시 가능):', err.message);
+    }
 });

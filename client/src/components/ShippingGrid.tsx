@@ -6,7 +6,8 @@ import { CheckCircle, AlertTriangle, Trash2, FileSpreadsheet, UserPlus, X } from
  * 동작 방식:
  * 1. 행을 클릭하면 → 상단 폼에 해당 행 데이터가 채워짐
  * 2. 폼에서 수정 후 → [그리드 수정] 버튼 클릭으로 반영
- * 3. 그리드 셀은 직접 편집 불가 (읽기 전용)
+ * 3. 주문번호는 인터페이스 화면에서만 확인용으로 표시되며, 한진택배 엑셀 내보내기에는 포함되지 않음
+ * 4. 비고(H열 품목명)에는 그립 H열 구매상품명이 들어가며(3개 이상 시 '외 N개'), 비어있으면 기존처럼 전화번호가 기입됨
  */
 
 /** 그리드에 표시되는 고객 행 데이터 타입 */
@@ -15,11 +16,17 @@ export interface GridRow {
   _isNew: boolean;
   _isSelected: boolean;
   _isDirty: boolean;
+  /** 그립 주문번호 (내 인터페이스에서만 확인, 한진엑셀 미표기) */
+  order_number?: string;
   name: string;
   phone: string;
   zipcode: string;
   address: string;
   detail_address: string;
+  /** 한진엑셀 H열(비고/품목명)에 기록될 구매상품 요약 텍스트 */
+  item_memo?: string;
+  /** 전체 구매상품 목록 (마우스 오버 툴팁 확인용) */
+  products?: string[];
   quantity?: number;
 }
 
@@ -49,9 +56,9 @@ const formatPhone = (phone: string): string => {
 };
 
 /** 주소 축약 */
-const truncateAddress = (addr: string, maxLen: number = 25): string => {
-  if (!addr) return '';
-  return addr.length > maxLen ? addr.slice(0, maxLen) + '…' : addr;
+const truncateText = (text: string, maxLen: number = 22): string => {
+  if (!text) return '';
+  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
 };
 
 export default function ShippingGrid({
@@ -77,7 +84,7 @@ export default function ShippingGrid({
       <div className="px-5 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <FileSpreadsheet size={20} />
-          <span className="font-bold text-sm">배송 데이터 확인</span>
+          <span className="font-bold text-sm">배송 데이터 확인 (주소입력 리스트)</span>
           <span className="bg-white/20 text-xs font-bold px-2 py-0.5 rounded-full">
             {rows.length}건
           </span>
@@ -101,7 +108,7 @@ export default function ShippingGrid({
         <div className="py-16 text-center text-slate-400">
           <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-300" />
           <p className="text-sm font-medium">아직 데이터가 없습니다</p>
-          <p className="text-xs mt-1">위에서 카카오톡 텍스트를 붙여넣거나, 폼에서 직접 입력하세요</p>
+          <p className="text-xs mt-1">위에서 그립(Grip) 판매내역서를 불러오거나 카카오톡 텍스트/폼으로 입력하세요</p>
         </div>
       ) : (
         <>
@@ -115,7 +122,7 @@ export default function ShippingGrid({
 
           {/* 안내 문구 */}
           <div className="mx-4 mt-3 mb-1 text-xs text-slate-400 text-center">
-            💡 행을 클릭하면 위 입력 폼에 내용이 채워집니다. 폼에서 수정 후 [그리드 수정] 버튼을 누르세요.
+            💡 <strong>주문번호</strong>는 화면 확인 전용(한진엑셀 미출력)이며, <strong>비고(H열)</strong>에는 구매상품명 요약이 자동 기록됩니다.
           </div>
 
           {/* 테이블 */}
@@ -123,7 +130,7 @@ export default function ShippingGrid({
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="w-10 px-3 py-2.5">
+                  <th className="w-9 px-2.5 py-2.5">
                     <input
                       type="checkbox"
                       checked={checkedIds.size === rows.length && rows.length > 0}
@@ -131,21 +138,37 @@ export default function ShippingGrid({
                       className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                     />
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider w-10">#</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">이름</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-12">수량</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">전화번호</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">우편번호</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">주소</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">상세주소</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-16">상태</th>
-                  <th className="px-1 py-2.5 w-10"></th>
+                  <th className="px-2 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider w-8">#</th>
+                  <th
+                    className="px-2.5 py-2.5 text-left text-xs font-bold text-violet-600 uppercase tracking-wider"
+                    title="인터페이스 확인 전용 (한진택배 엑셀 양식에는 출력되지 않습니다)"
+                  >
+                    주문번호 <span className="text-[10px] font-normal text-slate-400">(화면전용)</span>
+                  </th>
+                  <th className="px-2.5 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">이름</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-12">수량</th>
+                  <th className="px-2.5 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">전화번호</th>
+                  <th className="px-2 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">우편번호</th>
+                  <th className="px-2.5 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">주소</th>
+                  <th className="px-2.5 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">상세주소</th>
+                  <th
+                    className="px-2.5 py-2.5 text-left text-xs font-bold text-emerald-700 uppercase tracking-wider"
+                    title="한진택배 엑셀 H열(기존 전화번호가 한번 더 들어가던 비고란)에 들어갈 구매상품명"
+                  >
+                    비고 (H열 품목명)
+                  </th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-14">상태</th>
+                  <th className="px-1 py-2.5 w-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((row, index) => {
                   const isActive = activeRowId === row._tempId;
                   const isIncomplete = row.phone && !row.name;
+                  const fullProductsTooltip =
+                    row.products && row.products.length > 0
+                      ? `총 ${row.products.length}개 상품:\n` + row.products.map((p, i) => `${i + 1}. ${p}`).join('\n')
+                      : row.item_memo || '미입력 시 전화번호가 H열에 자동 입력됩니다';
 
                   return (
                     <tr
@@ -160,7 +183,7 @@ export default function ShippingGrid({
                             : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2.5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={checkedIds.has(row._tempId)}
@@ -168,32 +191,57 @@ export default function ShippingGrid({
                           className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                         />
                       </td>
-                      <td className="px-3 py-2.5 text-slate-400 font-mono text-xs">{index + 1}</td>
-                      <td className="px-3 py-2.5 font-medium text-slate-800">
+                      <td className="px-2 py-2.5 text-slate-400 font-mono text-xs">{index + 1}</td>
+                      <td className="px-2.5 py-2.5 font-mono text-xs">
+                        {row.order_number ? (
+                          <span className="inline-block bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded font-semibold">
+                            {row.order_number}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-2.5 py-2.5 font-medium text-slate-800 whitespace-nowrap">
                         {row.name || <span className="text-red-400 text-xs italic">미입력</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-center text-slate-700 font-bold text-xs" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2 py-2.5 text-center text-slate-700 font-bold text-xs" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="number"
                           min="1"
                           value={row.quantity || 1}
                           onChange={(e) => onQuantityChange(row._tempId, Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-14 text-center rounded border-slate-300 focus:border-emerald-500 focus:ring-emerald-500 py-1 px-1 bg-white shadow-sm"
+                          className="w-12 text-center rounded border-slate-300 focus:border-emerald-500 focus:ring-emerald-500 py-1 px-1 bg-white shadow-sm"
                         />
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">
+                      <td className="px-2.5 py-2.5 text-slate-600 font-mono text-xs whitespace-nowrap">
                         {formatPhone(row.phone)}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">
+                      <td className="px-2 py-2.5 text-slate-600 font-mono text-xs">
                         {row.zipcode || <span className="text-slate-300">-</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600 text-xs" title={row.address}>
-                        {truncateAddress(row.address) || <span className="text-slate-300">-</span>}
+                      <td className="px-2.5 py-2.5 text-slate-600 text-xs" title={row.address}>
+                        {truncateText(row.address, 20) || <span className="text-slate-300">-</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600 text-xs" title={row.detail_address}>
-                        {truncateAddress(row.detail_address, 15) || <span className="text-slate-300">-</span>}
+                      <td className="px-2.5 py-2.5 text-slate-600 text-xs" title={row.detail_address}>
+                        {truncateText(row.detail_address, 14) || <span className="text-slate-300">-</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-center">
+                      <td className="px-2.5 py-2.5 text-xs" title={fullProductsTooltip}>
+                        {row.item_memo ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-medium">
+                              {truncateText(row.item_memo, 28)}
+                            </span>
+                            {row.products && row.products.length >= 3 && (
+                              <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                                (총 {row.products.length}종)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">전화번호 자동기입</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
                         {row._isNew ? (
                           <span className="inline-flex items-center text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
                             신규

@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { useDaumPostcodePopup } from 'react-daum-postcode';
+import { useKakaoPostcodePopup } from 'react-daum-postcode';
 import { Search, Save, CheckCircle, Package, MapPin, Plus, AlertCircle } from 'lucide-react';
 import { io } from 'socket.io-client';
 import KakaoTextParser from './components/KakaoTextParser';
+import GripExcelImporter, { type GripGroupedCustomer } from './components/GripExcelImporter';
 import ShippingGrid, { type GridRow } from './components/ShippingGrid';
 
 // 로컬 개발 환경인지 판별 (localhost 또는 내부 IP)
@@ -29,6 +30,8 @@ function App() {
   const [zipcode, setZipcode] = useState('');
   const [address, setAddress] = useState('');
   const [detailAddress, setDetailAddress] = useState('');
+  const [orderNumber, setOrderNumber] = useState('');
+  const [itemMemo, setItemMemo] = useState('');
 
   // ──────────────────────────────────────────────────────
   // [UI 상태] 로딩, 메시지, 매칭 로딩
@@ -76,7 +79,8 @@ function App() {
   }, []);
 
   // 카카오 주소검색 훅
-  const openPostcode = useDaumPostcodePopup('//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js');
+  // 왜: 기존 t1.daumcdn.net 도메인이 2026년 11월 30일부로 종료됨에 따라 공식 신규 도메인(t1.kakaocdn.net)으로 교체하여 서비스 중단 방지
+  const openPostcode = useKakaoPostcodePopup('https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js');
 
   /** 카카오 주소검색 완료 콜백 */
   const handlePostcodeComplete = (data: any) => {
@@ -100,6 +104,69 @@ function App() {
     e.preventDefault();
     openPostcode({ onComplete: handlePostcodeComplete });
   };
+
+  // ──────────────────────────────────────────────────────
+  // [그립(Grip) 판매내역서 → 그리드] 동일고객 합포장 데이터 반영
+  // 왜: 이미 그리드에 동일 전화번호가 있으면 상품을 합쳐서 중복 송장 발행을 방지함
+  // ──────────────────────────────────────────────────────
+  const handleImportGripCustomers = useCallback((imported: GripGroupedCustomer[]) => {
+    if (!imported || imported.length === 0) {
+      setStatus({ type: 'error', message: '추출된 고객 데이터가 없습니다. 파일 양식을 확인해주세요.' });
+      return;
+    }
+
+    setGridRowsAndSync(prev => {
+      const updated = [...prev];
+      const phoneIndexMap = new Map<string, number>();
+      updated.forEach((r, idx) => {
+        if (r.phone) phoneIndexMap.set(r.phone, idx);
+      });
+
+      for (const c of imported) {
+        const existingIdx = c.phone ? phoneIndexMap.get(c.phone) : undefined;
+        if (existingIdx !== undefined) {
+          // 이미 그리드에 같은 전화번호가 있으면 주문번호와 구매상품 정보를 최신으로 병합
+          const prevRow = updated[existingIdx];
+          updated[existingIdx] = {
+            ...prevRow,
+            order_number: c.order_number || prevRow.order_number,
+            name: c.name || prevRow.name,
+            zipcode: c.zipcode || prevRow.zipcode,
+            address: c.address || prevRow.address,
+            detail_address: c.detail_address || prevRow.detail_address,
+            item_memo: c.item_memo || prevRow.item_memo,
+            products: c.products || prevRow.products,
+            _isDirty: true,
+          };
+        } else {
+          const newRow: GridRow = {
+            _tempId: generateTempId(),
+            _isNew: !c.foundInDb,
+            _isSelected: false,
+            _isDirty: false,
+            order_number: c.order_number,
+            name: c.name,
+            phone: c.phone,
+            zipcode: c.zipcode,
+            address: c.address,
+            detail_address: c.detail_address,
+            item_memo: c.item_memo,
+            products: c.products,
+            quantity: c.quantity || 1,
+          };
+          updated.push(newRow);
+          if (c.phone) phoneIndexMap.set(c.phone, updated.length - 1);
+        }
+      }
+
+      return updated;
+    });
+
+    setStatus({
+      type: 'success',
+      message: `그립 판매내역서에서 동일 고객을 묶어 총 ${imported.length}건의 주소입력 리스트를 생성했습니다.`,
+    });
+  }, [setGridRowsAndSync]);
 
   // ──────────────────────────────────────────────────────
   // [폼 → 그리드] 기존 단건 전화번호 검색 (폼에서 직접 입력 시)
@@ -187,7 +254,7 @@ function App() {
     } finally {
       setIsMatchLoading(false);
     }
-  }, [gridRows]);
+  }, [gridRows, setGridRowsAndSync]);
 
   // ──────────────────────────────────────────────────────
   // [그리드 → 폼] 행 클릭 시 데이터를 상단 폼에 로드
@@ -199,8 +266,10 @@ function App() {
     setZipcode(row.zipcode);
     setAddress(row.address);
     setDetailAddress(row.detail_address);
+    setOrderNumber(row.order_number || '');
+    setItemMemo(row.item_memo || '');
     setIsExistingCustomer(!row._isNew);
-    setStatus({ type: 'info', message: `[${row.phone}] 행이 선택됨 — 수정 후 [저장] 버튼을 누르세요.` });
+    setStatus({ type: 'info', message: `[${row.phone}] 행이 선택됨 — 수정 후 [그리드 수정] 버튼을 누르세요.` });
     
     // 폼 업데이트 후 스크롤이 확실히 동작하도록 setTimeout 사용
     setTimeout(() => {
@@ -249,6 +318,8 @@ function App() {
             zipcode,
             address,
             detail_address: detailAddress,
+            order_number: orderNumber.trim() || undefined,
+            item_memo: itemMemo.trim() || undefined,
             _isDirty: true, // 수정됨 표시
           };
         }
@@ -257,7 +328,6 @@ function App() {
       setStatus({ type: 'success', message: '그리드에 수정 사항이 반영되었습니다.' });
     } else {
       // 새 행 추가 (그리드에 없는 경우)
-      // 중복 전화번호 체크
       const exists = gridRows.some(r => r.phone === normalizedPhone);
       if (exists) {
         setStatus({ type: 'error', message: '이미 그리드에 같은 전화번호가 있습니다. 해당 행을 클릭하여 수정하세요.' });
@@ -274,6 +344,8 @@ function App() {
         zipcode,
         address,
         detail_address: detailAddress,
+        order_number: orderNumber.trim() || undefined,
+        item_memo: itemMemo.trim() || undefined,
         quantity: 1, // 신규 추가 시 기본값 1
       };
       setGridRowsAndSync(prev => [...prev, newRow]);
@@ -298,6 +370,8 @@ function App() {
     setZipcode('');
     setAddress('');
     setDetailAddress('');
+    setOrderNumber('');
+    setItemMemo('');
     setActiveRowId(null);
     setIsExistingCustomer(false);
   };
@@ -350,10 +424,10 @@ function App() {
 
   // ──────────────────────────────────────────────────────
   // [엑셀 내보내기] DB 일괄 저장 + 한진택배 엑셀 생성
-  // 왜 여기서 DB 저장: 사용자가 그리드 데이터를 최종 확인한 후에만 저장하여 입력 오류 방지
+  // 왜: 주문번호(order_number)는 인터페이스에서만 확인하고 한진엑셀에는 제외,
+  // 구매상품명 요약(item_memo)은 한진엑셀 H열(비고/품목명)에 기록
   // ──────────────────────────────────────────────────────
   const handleExport = async () => {
-    // 유효한 행만 (이름 + 전화번호 있는 것)
     const validRows = gridRows.filter(r => r.name && r.phone);
 
     if (validRows.length === 0) {
@@ -361,7 +435,6 @@ function App() {
       return;
     }
 
-    // 이름 미입력 행이 있으면 경고
     const incompleteRows = gridRows.filter(r => r.phone && !r.name);
     if (incompleteRows.length > 0) {
       const proceed = window.confirm(
@@ -380,6 +453,7 @@ function App() {
         zipcode: r.zipcode,
         address: r.address,
         detail_address: r.detail_address,
+        item_memo: r.item_memo || '',
         quantity: r.quantity || 1,
       }));
 
@@ -412,7 +486,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 py-6 px-4">
-      <div className="w-full max-w-5xl mx-auto space-y-4">
+      <div className="w-full max-w-6xl mx-auto space-y-4">
 
         {/* ═══════════════════════════════════════════ */}
         {/* 헤더 */}
@@ -422,13 +496,21 @@ function App() {
             <Package size={32} className="text-blue-600" />
             <div className="text-left">
               <h1 className="text-xl font-bold text-slate-800 tracking-tight">한진택배 고객 배송지 입력기</h1>
-              <p className="text-xs text-slate-500">카카오톡 텍스트 → 자동 인식 → 확인 → 엑셀 내보내기</p>
+              <p className="text-xs text-slate-500">그립(Grip) 판매내역서 합포장 추출 · 카카오톡 텍스트 인식 → 확인 → 엑셀 내보내기</p>
             </div>
           </div>
         </div>
 
         {/* ═══════════════════════════════════════════ */}
-        {/* 1단계: 카카오톡 텍스트 파서 */}
+        {/* 1-A단계: 그립(Grip) 판매내역서 파서 */}
+        {/* ═══════════════════════════════════════════ */}
+        <GripExcelImporter
+          apiUrl={API_URL}
+          onImportCustomers={handleImportGripCustomers}
+        />
+
+        {/* ═══════════════════════════════════════════ */}
+        {/* 1-B단계: 카카오톡 텍스트 파서 */}
         {/* ═══════════════════════════════════════════ */}
         <KakaoTextParser
           onMatchRequest={handleBulkMatch}
@@ -552,6 +634,34 @@ function App() {
                   onChange={(e) => setDetailAddress(e.target.value)}
                   placeholder="상세 주소 (동, 호수 등 직접 입력)"
                   className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2.5 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* 주문번호(화면 확인용) + 비고(H열 품목명) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-violet-700 mb-1.5">
+                  주문번호 <span className="text-[11px] font-normal text-slate-400">(내 화면 확인 전용 · 한진엑셀 미표기)</span>
+                </label>
+                <input
+                  type="text"
+                  value={orderNumber}
+                  onChange={(e) => setOrderNumber(e.target.value)}
+                  placeholder="예: 1600465297"
+                  className="w-full rounded-lg border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 border p-2.5 text-sm font-mono"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-emerald-700 mb-1.5">
+                  비고 / H열 품목명 <span className="text-[11px] font-normal text-slate-400">(한진엑셀 H열에 기록 · 비워두면 전화번호 자동기입)</span>
+                </label>
+                <input
+                  type="text"
+                  value={itemMemo}
+                  onChange={(e) => setItemMemo(e.target.value)}
+                  placeholder="예: 베이지 하프집업 니트, 블랙 후드 티셔츠 외 5개"
+                  className="w-full rounded-lg border-slate-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-2.5 text-sm"
                 />
               </div>
             </div>
