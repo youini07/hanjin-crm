@@ -19,20 +19,47 @@ const io = new Server(server, {
 });
 const PORT = 3001;
 
-// [웹소켓] 공유 그리드 상태
-let sharedGridRows = [];
+// [웹소켓] 페이지별 독립 공유 그리드 상태
+// 왜: 카카오톡 텍스트 입력 페이지와 그립(Grip) 엑셀 페이지가 분리됨에 따라,
+// 각 페이지의 작업 중 데이터가 서로 섞이거나 덮어써지지 않도록 별도 배열로 격리함
+let sharedKakaoGridRows = [];
+let sharedGripGridRows = [];
 
 io.on('connection', (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
-    
-    // 새 클라이언트가 접속하면 현재 그리드 상태를 보내줌
-    socket.emit('init_grid', sharedGridRows);
 
-    // 클라이언트로부터 그리드 업데이트 내역 수신 시
+    // 최초 접속 시 각 페이지의 현재 그리드 상태 전달
+    socket.emit('init_kakao_grid', sharedKakaoGridRows);
+    socket.emit('init_grip_grid', sharedGripGridRows);
+    // 하위 호환용 기본 이벤트(카카오 페이지 기준)
+    socket.emit('init_grid', sharedKakaoGridRows);
+
+    // 페이지 전환 시 최신 그리드 상태를 재요청할 수 있도록 지원
+    socket.on('request_kakao_grid', () => {
+        socket.emit('init_kakao_grid', sharedKakaoGridRows);
+    });
+
+    socket.on('request_grip_grid', () => {
+        socket.emit('init_grip_grid', sharedGripGridRows);
+    });
+
+    // 카카오톡 페이지 그리드 업데이트 동기화
+    socket.on('update_kakao_grid', (newRows) => {
+        sharedKakaoGridRows = Array.isArray(newRows) ? newRows : [];
+        socket.broadcast.emit('kakao_grid_updated', sharedKakaoGridRows);
+    });
+
+    // 하위 호환용 기본 업데이트 이벤트
     socket.on('update_grid', (newRows) => {
-        sharedGridRows = newRows;
-        // 다른 모든 클라이언트에게 변경된 그리드 브로드캐스트
-        socket.broadcast.emit('grid_updated', sharedGridRows);
+        sharedKakaoGridRows = Array.isArray(newRows) ? newRows : [];
+        socket.broadcast.emit('kakao_grid_updated', sharedKakaoGridRows);
+        socket.broadcast.emit('grid_updated', sharedKakaoGridRows);
+    });
+
+    // 그립(Grip) 페이지 그리드 업데이트 동기화
+    socket.on('update_grip_grid', (newRows) => {
+        sharedGripGridRows = Array.isArray(newRows) ? newRows : [];
+        socket.broadcast.emit('grip_grid_updated', sharedGripGridRows);
     });
 
     socket.on('disconnect', () => {
@@ -342,44 +369,12 @@ app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 서버 시작 + 구글 시트 동기화 + 최근 그립 주문파일 초기 로드
+// 서버 시작 + 구글 시트 동기화
+// 왜: 이전에는 서버 시작 시 폴더 내 '주문_*.xlsx'를 그리드에 자동 로드했으나,
+// 과거 주문 데이터가 카카오톡/그립 작업 목록에 자동 혼입되는 문제를 막기 위해 자동 로드를 제거함
+// (필요 시 그립 전용 페이지에서 파일 업로드 또는 폴더 불러오기 버튼으로 명시적으로 로드 가능)
 server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     // 서버가 켜질 때 백그라운드에서 구글 시트 데이터를 로컬 DB로 동기화
     await syncFromSheetToDB();
-
-    // 루트 폴더에 첨부된 그립 주문 파일이 있고 그리드가 비어있다면 초기 리스트로 자동 세팅
-    try {
-        const rootDir = path.join(__dirname, '..');
-        const files = fs.readdirSync(rootDir).filter(f => f.startsWith('주문_') && f.endsWith('.xlsx'));
-        if (files.length > 0 && sharedGridRows.length === 0) {
-            files.sort().reverse();
-            const samplePath = path.join(rootDir, files[0]);
-            const buf = fs.readFileSync(samplePath);
-            const grouped = await parseGripExcelBuffer(buf, 2);
-            const phones = grouped.map(item => item.phone).filter(Boolean);
-            const existingCustomers = await getCustomersByPhones(phones);
-            const existingPhoneSet = new Set(existingCustomers.map(c => c.phone));
-
-            sharedGridRows = grouped.map((c, idx) => ({
-                _tempId: `init_grip_${Date.now()}_${idx}`,
-                _isNew: !existingPhoneSet.has(c.phone),
-                _isSelected: false,
-                _isDirty: false,
-                order_number: c.order_number,
-                name: c.name,
-                phone: c.phone,
-                zipcode: c.zipcode,
-                address: c.address,
-                detail_address: c.detail_address,
-                item_memo: c.item_memo,
-                products: c.products,
-                quantity: c.quantity || 1
-            }));
-            io.emit('grid_updated', sharedGridRows);
-            console.log(`✅ 초기 그립 판매내역서(${files[0]})에서 ${sharedGridRows.length}명의 고객 리스트를 자동 로드했습니다.`);
-        }
-    } catch (err) {
-        console.error('초기 그립 파일 로드 중 오류(무시 가능):', err.message);
-    }
 });

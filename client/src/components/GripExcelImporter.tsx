@@ -74,9 +74,12 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
           onImportCustomers(res.data.items);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setErrorMsg(err.response?.data?.error || '파일 분석 중 오류가 발생했습니다.');
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.error || '파일 분석 중 오류가 발생했습니다.'
+        : '파일 분석 중 오류가 발생했습니다.';
+      setErrorMsg(message);
     } finally {
       setIsLoading(false);
       if (fileInputRef.current) {
@@ -102,9 +105,12 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
         onImportCustomers(res.data.items);
         setCsvText('');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setErrorMsg(err.response?.data?.error || '텍스트 분석 중 오류가 발생했습니다.');
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.error || '텍스트 분석 중 오류가 발생했습니다.'
+        : '텍스트 분석 중 오류가 발생했습니다.';
+      setErrorMsg(message);
     } finally {
       setIsLoading(false);
     }
@@ -123,9 +129,12 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
         setSelectedFileName(res.data.fileName);
         onImportCustomers(res.data.items);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setErrorMsg(err.response?.data?.error || '첨부된 주문 파일을 불러오지 못했습니다.');
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.error || '첨부된 주문 파일을 불러오지 못했습니다.'
+        : '첨부된 주문 파일을 불러오지 못했습니다.';
+      setErrorMsg(message);
     } finally {
       setIsLoading(false);
     }
