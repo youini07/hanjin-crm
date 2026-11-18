@@ -1,9 +1,20 @@
 import { useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import KakaoTextParser from '../components/KakaoTextParser';
+import KakaoTextParser, { type AiParsedSummary } from '../components/KakaoTextParser';
 import CustomerForm from '../components/CustomerForm';
-import ShippingGrid, { type GridRow } from '../components/ShippingGrid';
-import { API_URL, generateTempId, type StatusMessage } from '../config/api';
+import ShippingGrid, {
+  type GridRow,
+  type ReviewStatus,
+  type AddressPendingType,
+  type PrevDbCustomerInfo,
+} from '../components/ShippingGrid';
+import {
+  API_URL,
+  generateTempId,
+  normalizeClientPhone,
+  normalizeClientZipcode,
+  type StatusMessage,
+} from '../config/api';
 import { useSyncedGrid } from '../hooks/useSyncedGrid';
 
 interface BulkMatchResultItem {
@@ -18,13 +29,26 @@ interface BulkMatchResultItem {
   };
 }
 
-/**
- * KakaoShippingPage - 카카오톡 텍스트 붙여넣기 전용 배송지 입력 페이지
- *
- * 왜 그립 페이지와 분리했는가:
- * 카카오톡 대화 복사로 주문을 처리할 때 그립 전용 UI(판매내역서 업로더, 주문번호, H열 품목명 등)가
- * 화면을 복잡하게 만들고 주소 확인 영역을 좁히는 문제를 해결하기 위해 독립 페이지로 구성함.
- */
+interface AiParsedItemFromServer {
+  phone: string;
+  name: string;
+  zipcode: string;
+  address: string;
+  detail_address: string;
+  quantity?: number;
+  _fbName?: string;
+  _fbUpdated?: boolean;
+  _isNew: boolean;
+  _reviewStatus: ReviewStatus;
+  _namePending?: boolean;
+  _addressPending?: AddressPendingType;
+  _isConfirmed: boolean;
+  _needsAddressCheck?: boolean;
+  _chatNameHint?: string;
+  _aiNote?: string;
+  _prevDbInfo?: PrevDbCustomerInfo;
+}
+
 export default function KakaoShippingPage() {
   const [status, setStatus] = useState<StatusMessage>({ type: '', message: '' });
   const [isMatchLoading, setIsMatchLoading] = useState(false);
@@ -40,6 +64,9 @@ export default function KakaoShippingPage() {
     checkedIds,
     isExporting,
     handleRowDelete,
+    handleConfirmNameField,
+    handleConfirmAddressField,
+    handleConfirmRows,
     handleQuantityChange,
     handleCheckToggle,
     handleCheckAll,
@@ -50,18 +77,97 @@ export default function KakaoShippingPage() {
     onResetSelection: handleResetSelection,
   });
 
-  // 현재 수정 중인 행 객체 조회
   const activeRow = useMemo(
     () => gridRows.find((r) => r._tempId === activeRowId) || null,
     [gridRows, activeRowId]
   );
 
-  // 중복 전화번호 검사용 배열
   const existingPhones = useMemo(() => gridRows.map((r) => r.phone), [gridRows]);
 
-  /**
-   * 카카오톡 텍스트에서 추출한 전화번호 목록으로 DB 일괄 매칭 후 그리드에 추가
-   */
+  /** AI 대화 분석 후 셀 단위 변경 정보와 함께 그리드에 추가 (FB 아이디는 백그라운드 보관) */
+  const handleAiParse = useCallback(
+    async (rawText: string): Promise<AiParsedSummary | null> => {
+      setIsMatchLoading(true);
+      setStatus({ type: '', message: '' });
+
+      try {
+        const response = await axios.post(`${API_URL}/kakao/ai-parse`, { rawText });
+        if (!response.data?.success) {
+          setStatus({ type: 'error', message: 'AI 분석 결과를 받지 못했습니다.' });
+          return null;
+        }
+
+        const items: AiParsedItemFromServer[] = response.data.items || [];
+        const summary: AiParsedSummary = response.data.summary;
+
+        if (items.length === 0) {
+          setStatus({
+            type: 'info',
+            message: '붙여넣은 대화에서 인식된 고객 전화번호가 없습니다.',
+          });
+          return summary;
+        }
+
+        setGridRowsAndSync((prev) => {
+          const existingSigSet = new Set(
+            prev.map((r) => `${r.phone}::${r.address.replace(/\s+/g, '')}`)
+          );
+
+          const toAppend: GridRow[] = [];
+          for (const item of items) {
+            const normPhone = normalizeClientPhone(item.phone);
+            const sig = `${normPhone}::${(item.address || '').replace(/\s+/g, '')}`;
+            if (existingSigSet.has(sig)) continue;
+            existingSigSet.add(sig);
+
+            toAppend.push({
+              _tempId: generateTempId('kakao'),
+              _isNew: item._isNew,
+              _isSelected: false,
+              _isDirty: item._reviewStatus === 'MODIFIED',
+              _reviewStatus: item._reviewStatus,
+              _namePending: Boolean(item._namePending),
+              _addressPending: item._addressPending ?? null,
+              _isConfirmed: item._isConfirmed,
+              _needsAddressCheck: Boolean(item._needsAddressCheck),
+              _chatNameHint: item._chatNameHint || '',
+              _aiNote: item._aiNote || '',
+              _fbName: item._fbName || '',
+              _fbUpdated: Boolean(item._fbUpdated),
+              _prevDbInfo: item._prevDbInfo,
+              name: item.name || '',
+              phone: normPhone,
+              zipcode: normalizeClientZipcode(item.zipcode),
+              address: item.address || '',
+              detail_address: item.detail_address || '',
+              quantity: item.quantity || 1,
+            });
+          }
+
+          return [...prev, ...toAppend];
+        });
+
+        setStatus({
+          type: 'success',
+          message: `분석 완료 (${summary.total}건): 기존일치 ${summary.matched} · 정보변경 ${summary.modified} · 신규 ${summary.newCount} · 사진확인 ${summary.photoCheck}`,
+        });
+
+        return summary;
+      } catch (error: unknown) {
+        console.error('AI parse error:', error);
+        const msg = axios.isAxiosError(error)
+          ? error.response?.data?.error || 'AI 채팅 분석 중 오류가 발생했습니다.'
+          : 'AI 채팅 분석 중 오류가 발생했습니다.';
+        setStatus({ type: 'error', message: msg });
+        return null;
+      } finally {
+        setIsMatchLoading(false);
+      }
+    },
+    [setGridRowsAndSync]
+  );
+
+  /** 비상용: 전화번호만 정규식 추출하여 기존 DB 매칭 */
   const handleBulkMatch = useCallback(
     async (phones: string[]) => {
       setIsMatchLoading(true);
@@ -81,9 +187,13 @@ export default function KakaoShippingPage() {
               _isNew: !r.found,
               _isSelected: false,
               _isDirty: false,
+              _reviewStatus: r.found ? 'MATCHED' : 'NO_ADDRESS',
+              _namePending: false,
+              _addressPending: r.found ? null : 'NEW_PHOTO',
+              _isConfirmed: r.found,
               name: r.customer.name || '',
-              phone: r.customer.phone,
-              zipcode: r.customer.zipcode || '',
+              phone: normalizeClientPhone(r.customer.phone),
+              zipcode: normalizeClientZipcode(r.customer.zipcode),
               address: r.customer.address || '',
               detail_address: r.customer.detail_address || '',
               quantity: 1,
@@ -111,12 +221,11 @@ export default function KakaoShippingPage() {
     [gridRows, setGridRowsAndSync]
   );
 
-  /** 그리드 행 클릭 시 상단 폼으로 로드 및 스크롤 이동 */
   const handleRowSelect = useCallback((row: GridRow) => {
     setActiveRowId(row._tempId);
     setStatus({
       type: 'info',
-      message: `[${row.phone}] 행이 선택됨 — 수정 후 [그리드 수정] 버튼을 누르세요.`,
+      message: `[${row.phone}] 행 선택됨 — 수정 후 [그리드 수정 & 확인 완료]를 누르세요.`,
     });
 
     setTimeout(() => {
@@ -127,7 +236,6 @@ export default function KakaoShippingPage() {
     }, 50);
   }, []);
 
-  /** 상단 폼에서 신규 고객 행 추가 */
   const handleAddNewRow = useCallback(
     (data: {
       phone: string;
@@ -141,10 +249,15 @@ export default function KakaoShippingPage() {
         _tempId: generateTempId('kakao'),
         _isNew: !data.isExistingCustomer,
         _isSelected: false,
-        _isDirty: false,
+        _isDirty: true,
+        _reviewStatus: data.isExistingCustomer ? 'MODIFIED' : 'NEW',
+        _namePending: false,
+        _addressPending: null,
+        _isConfirmed: true,
+        _needsAddressCheck: false,
         name: data.name,
-        phone: data.phone,
-        zipcode: data.zipcode,
+        phone: normalizeClientPhone(data.phone),
+        zipcode: normalizeClientZipcode(data.zipcode),
         address: data.address,
         detail_address: data.detail_address,
         quantity: 1,
@@ -154,7 +267,7 @@ export default function KakaoShippingPage() {
     [setGridRowsAndSync]
   );
 
-  /** 상단 폼에서 선택된 기존 행 수정 */
+  /** 상단 폼에서 수정 시 이름·주소 대기 플래그를 모두 해제하고 확인 완료 처리 */
   const handleUpdateRow = useCallback(
     (
       tempId: string,
@@ -167,19 +280,22 @@ export default function KakaoShippingPage() {
       }
     ) => {
       setGridRowsAndSync((prev) =>
-        prev.map((row) =>
-          row._tempId === tempId
-            ? {
-                ...row,
-                name: data.name,
-                phone: data.phone,
-                zipcode: data.zipcode,
-                address: data.address,
-                detail_address: data.detail_address,
-                _isDirty: true,
-              }
-            : row
-        )
+        prev.map((row) => {
+          if (row._tempId !== tempId) return row;
+          return {
+            ...row,
+            name: data.name,
+            phone: normalizeClientPhone(data.phone),
+            zipcode: normalizeClientZipcode(data.zipcode),
+            address: data.address,
+            detail_address: data.detail_address,
+            _isDirty: true,
+            _namePending: false,
+            _addressPending: null,
+            _isConfirmed: true,
+            _needsAddressCheck: false,
+          };
+        })
       );
     },
     [setGridRowsAndSync]
@@ -187,10 +303,12 @@ export default function KakaoShippingPage() {
 
   return (
     <div className="space-y-4">
-      {/* 1단계: 카카오톡 텍스트 붙여넣기 */}
-      <KakaoTextParser onMatchRequest={handleBulkMatch} isLoading={isMatchLoading} />
+      <KakaoTextParser
+        onAiParseRequest={handleAiParse}
+        onMatchRequest={handleBulkMatch}
+        isLoading={isMatchLoading}
+      />
 
-      {/* 2단계: 고객 배송지 입력/수정 폼 (기존 카카오톡 UI 그대로 유지) */}
       <CustomerForm
         key={activeRow?._tempId ?? 'new-kakao'}
         activeRow={activeRow}
@@ -202,13 +320,15 @@ export default function KakaoShippingPage() {
         onCancelEdit={handleResetSelection}
       />
 
-      {/* 3단계: 배송 데이터 확인 및 엑셀 내보내기 */}
       <ShippingGrid
         mode="kakao"
         rows={gridRows}
         activeRowId={activeRowId}
         onRowSelect={handleRowSelect}
         onRowDelete={(ids) => handleRowDelete(ids, activeRowId)}
+        onConfirmNameField={handleConfirmNameField}
+        onConfirmAddressField={handleConfirmAddressField}
+        onConfirmRows={handleConfirmRows}
         onExport={handleExport}
         isExporting={isExporting}
         checkedIds={checkedIds}

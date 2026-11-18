@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { normalizeKoreanPhone, normalizeZipcode } = require('./utils/normalizer');
 
 /**
  * CSV 한 줄을 파싱하는 헬퍼 함수 (큰따옴표 내부의 쉼표 보존)
@@ -111,9 +112,9 @@ function groupGripRows(rawRows, visibleCount = 2) {
         const productName = String(row[idxProductName] ?? '').trim();
         const recName = String(row[idxRecName] || row[idxBuyerName] || '').trim();
         const rawPhone = String(row[idxRecPhone] || row[idxBuyerPhone] || '').trim();
-        const normalizedPhone = rawPhone.replace(/[^0-9]/g, '');
+        const normalizedPhone = normalizeKoreanPhone(rawPhone);
         const rawZip = String(row[idxZipcode] ?? '').trim();
-        const zipcode = rawZip ? rawZip.padStart(5, '0') : '';
+        const zipcode = normalizeZipcode(rawZip);
         const fullAddr = String(row[idxAddress] ?? '').trim();
         const deliveryMsg = String(row[idxDeliveryMsg] ?? '').trim();
         const orderStatus = String(row[idxOrderStatus] ?? '').trim();

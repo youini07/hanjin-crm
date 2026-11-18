@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const dayjs = require('dayjs');
+const { normalizeKoreanPhone, normalizeZipcode } = require('./utils/normalizer');
 
 const dataDir = process.env.DATA_DIR || __dirname;
 const DB_FOLDER = path.join(dataDir, '고객데이터베이스');
@@ -45,17 +46,17 @@ async function appendToDailyExcel(customer) {
     const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
     const addressWithNote = fullAddress ? `${fullAddress} (외국인입니다 사진부탁해요)` : '';
 
-    // 우편번호가 숫자로 들어올 수 있으므로, 무조건 문자열로 변환 후 5자리로 맞춤 (예: 8579 → "08579")
-    const safeZipcode = zipcode ? String(zipcode).padStart(5, '0') : '';
-    const safePhone = phone ? String(phone) : '';
+    // 우편번호가 4자리 숫자로 들어오더라도 무조건 5자리 문자열(예: 8579 → "08579")로 보존
+    const safeZipcode = normalizeZipcode(zipcode);
+    const safePhone = normalizeKoreanPhone(phone);
     // H열(품목명/비고): 구매상품명(item_memo)이 있으면 우선 기록하고, 없으면 기존처럼 전화번호 기록
     const safeMemo = item_memo && String(item_memo).trim() ? String(item_memo).trim() : safePhone;
 
     // Create a new row array. ExcelJS uses 1-based indexing for columns.
     const newRow = [];
     newRow[1] = name;                 // A: 이름
-    newRow[2] = phone;                // B: 전화번호
-    newRow[5] = zipcode;              // E: 우편번호
+    newRow[2] = safePhone;            // B: 전화번호
+    newRow[5] = safeZipcode;          // E: 우편번호 (5자리 텍스트)
     newRow[6] = addressWithNote;      // F: 주소+상세주소+메모
     newRow[8] = safeMemo;             // H: 품목명(비고) 또는 전화번호
 
@@ -140,8 +141,8 @@ async function appendMultipleToDailyExcel(customers) {
 
         const fullAddress = `${address || ''} ${detail_address || ''}`.trim();
         const addressWithNote = fullAddress ? `${fullAddress} (외국인입니다 사진부탁해요)` : '';
-        const safeZipcode = zipcode ? String(zipcode).padStart(5, '0') : '';
-        const safePhone = phone ? String(phone) : '';
+        const safeZipcode = normalizeZipcode(zipcode);
+        const safePhone = normalizeKoreanPhone(phone);
         // H열(품목명/비고): 구매상품명(item_memo)이 있으면 우선 기록하고, 없으면 기존처럼 전화번호 기록
         const safeMemo = item_memo && String(item_memo).trim() ? String(item_memo).trim() : safePhone;
 

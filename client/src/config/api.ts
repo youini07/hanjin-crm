@@ -14,8 +14,6 @@ export const API_URL = isDev ? `http://${window.location.hostname}:3001/api` : '
 
 /**
  * 앱 전체에서 단일 웹소켓 연결을 공유
- * 왜: 카카오톡 페이지와 그립 페이지를 오갈 때마다 소켓을 새로 연결/해제하면
- * 불필요한 재연결 비용과 이벤트 중복이 발생하므로 싱글톤으로 유지함
  */
 export const socket = isDev ? io(`http://${window.location.hostname}:3001`) : io();
 
@@ -27,8 +25,43 @@ export interface StatusMessage {
 
 /**
  * 그리드 행 식별을 위한 클라이언트 전용 고유 임시 ID 생성기
- * 왜: 엑셀 내보내기 전이거나 신규 고객인 경우 아직 DB ID가 없으므로 화면 렌더링/수정 타겟 식별용으로 사용
  */
 let tempIdCounter = 0;
 export const generateTempId = (prefix: string = 'temp') =>
   `${prefix}_${Date.now()}_${++tempIdCounter}`;
+
+/**
+ * 프론트엔드 전화번호 정규화 헬퍼 (+82 국가번호 포함 지원)
+ * 왜: '+821024644186', '+82 10-2464-4186' 등을 붙여넣었을 때 즉시 '01024644186'으로 변환하기 위함
+ */
+export const normalizeClientPhone = (raw: string): string => {
+  if (!raw) return '';
+  const trimmed = raw.trim().replace(/^'+/, '');
+  let cleaned = trimmed.replace(/[^0-9+]/g, '');
+
+  if (cleaned.startsWith('+82')) {
+    const rest = cleaned.slice(3).replace(/[^0-9]/g, '');
+    return rest.startsWith('0') ? rest : `0${rest}`;
+  }
+
+  cleaned = cleaned.replace(/[^0-9]/g, '');
+  if (cleaned.startsWith('0082') && cleaned.length >= 12) {
+    const rest = cleaned.slice(4);
+    return rest.startsWith('0') ? rest : `0${rest}`;
+  }
+  if (cleaned.startsWith('8210') && cleaned.length === 12) {
+    return `0${cleaned.slice(2)}`;
+  }
+  return cleaned;
+};
+
+/**
+ * 프론트엔드 5자리 우편번호 보존 헬퍼 (서울 4자리 -> 0xxxx 복원)
+ */
+export const normalizeClientZipcode = (raw: string | number | undefined | null): string => {
+  if (raw === undefined || raw === null) return '';
+  const s = String(raw).trim().replace(/^'+/, '').trim();
+  if (!s) return '';
+  if (/^\d{4}$/.test(s)) return `0${s}`;
+  return s;
+};
