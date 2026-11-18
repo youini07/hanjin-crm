@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, ClipboardPaste, ShoppingBag, Settings } from 'lucide-react';
+import { Package, MessageSquareText, FileSpreadsheet, SlidersHorizontal } from 'lucide-react';
 import KakaoShippingPage from './pages/KakaoShippingPage';
 import GripShippingPage from './pages/GripShippingPage';
 import ApiSettingsModal, { type PublicApiSettings } from './components/ApiSettingsModal';
@@ -14,7 +14,7 @@ const getPageFromPathname = (pathname: string): ActivePage => {
 };
 
 /**
- * App - 최상위 레이아웃, 페이지 라우터 및 API 설정 모달 관리
+ * App - 모던 미니멀 상단 네비게이션 및 페이지 레이아웃
  */
 function App() {
   const [activePage, setActivePage] = useState<ActivePage>(() =>
@@ -25,7 +25,6 @@ function App() {
   const [apiSettings, setApiSettings] = useState<PublicApiSettings | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 브라우저 뒤로가기 / 앞으로가기 지원
   useEffect(() => {
     const handlePopState = () => {
       setActivePage(getPageFromPathname(window.location.pathname));
@@ -34,7 +33,7 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // 서버에 저장된 API 키 상태 조회 (백엔드가 늦게 켜져도 소켓 연결 시 자동 재동기화)
+  // 서버에 저장된 API 키 상태 조회 (소켓 재연결 시 자동 동기화)
   useEffect(() => {
     const loadSettings = () => {
       axios
@@ -54,7 +53,6 @@ function App() {
     };
   }, []);
 
-  // 상단 탭에 각 페이지 대기 건수 실시간 표시
   useEffect(() => {
     const updateKakaoCount = (rows: GridRow[]) =>
       setKakaoCount(Array.isArray(rows) ? rows.length : 0);
@@ -86,47 +84,47 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 py-6 px-4 sm:px-6">
-      <div className="w-full max-w-[1480px] mx-auto space-y-4">
-        {/* 상단 헤더 및 페이지 전환 네비게이션 */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-2xl shadow-md px-5 py-3.5 border border-slate-200">
-          {/* 좌측 타이틀 */}
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 rounded-xl">
-              <Package size={26} className="text-blue-600" />
+    <div className="min-h-screen bg-[#F7F8FA] text-slate-900">
+      {/* 모던 글래스 상단 헤더 */}
+      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-slate-200/80">
+        <div className="w-full max-w-[1480px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          {/* 브랜드 영역 */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Package size={18} strokeWidth={2.2} />
             </div>
-            <div>
-              <h1 className="text-lg font-bold text-slate-800 tracking-tight">
-                한진택배 고객 배송지 입력기
+            <div className="truncate">
+              <h1 className="text-[15px] font-bold text-slate-900 tracking-tight leading-tight">
+                한진택배 송장 워크스페이스
               </h1>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] text-slate-400 hidden sm:block">
                 {activePage === 'kakao'
-                  ? '카카오톡 대화 AI 분석 → 변경/신규 주소 확인 → 한진택배 엑셀 내보내기'
-                  : '그립(Grip) 판매내역서 합포장 추출 → 배송지 확인 → 한진택배 엑셀 내보내기'}
+                  ? '카카오톡 AI 주소 분석 · DB 대조 · 엑셀 출력'
+                  : '그립(Grip) 주문 합포장 추출 · 엑셀 출력'}
               </p>
             </div>
           </div>
 
-          {/* 우측 페이지 전환 탭 + API 설정 버튼 */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl flex-1 sm:flex-initial">
+          {/* 우측 세그먼트 탭 & 설정 버튼 */}
+          <div className="flex items-center gap-2.5">
+            <nav className="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/60">
               <button
                 type="button"
                 onClick={() => navigateTo('kakao')}
-                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${
                   activePage === 'kakao'
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-900/5'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <ClipboardPaste size={16} />
-                <span>카카오톡 텍스트 입력</span>
+                <MessageSquareText size={15} />
+                <span>카카오톡 주문</span>
                 {kakaoCount > 0 && (
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                    className={`text-[11px] px-1.5 py-0.2 rounded-md font-bold tabular-nums ${
                       activePage === 'kakao'
-                        ? 'bg-white/25 text-white'
-                        : 'bg-amber-100 text-amber-700'
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-200/80 text-slate-600'
                     }`}
                   >
                     {kakaoCount}
@@ -137,49 +135,51 @@ function App() {
               <button
                 type="button"
                 onClick={() => navigateTo('grip')}
-                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${
                   activePage === 'grip'
-                    ? 'bg-violet-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-900/5'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <ShoppingBag size={16} />
-                <span>그립(Grip) 엑셀 파일</span>
+                <FileSpreadsheet size={15} />
+                <span>그립(Grip) 시트</span>
                 {gripCount > 0 && (
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                    className={`text-[11px] px-1.5 py-0.2 rounded-md font-bold tabular-nums ${
                       activePage === 'grip'
-                        ? 'bg-white/25 text-white'
-                        : 'bg-violet-100 text-violet-700'
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-200/80 text-slate-600'
                     }`}
                   >
                     {gripCount}
                   </span>
                 )}
               </button>
-            </div>
+            </nav>
 
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition shrink-0 ${
-                apiSettings?.hasGeminiKey
-                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                  : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-              }`}
-              title="Gemini API 키 및 주소 검색 API 키 설정"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs transition"
+              title="AI 및 주소 API 설정"
             >
-              <Settings size={15} />
-              <span className="hidden md:inline">API 설정</span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  apiSettings?.hasGeminiKey ? 'bg-emerald-500' : 'bg-slate-300'
+                }`}
+              />
+              <SlidersHorizontal size={14} />
+              <span className="hidden md:inline">설정</span>
             </button>
           </div>
         </div>
+      </header>
 
-        {/* 현재 선택된 페이지 렌더링 */}
+      {/* 메인 컨텐츠 영역 */}
+      <main className="w-full max-w-[1480px] mx-auto px-4 sm:px-6 py-6">
         {activePage === 'kakao' ? <KakaoShippingPage /> : <GripShippingPage />}
-      </div>
+      </main>
 
-      {/* API 키 및 AI 모델 설정 모달 (열릴 때마다 초기 상태로 마운트) */}
       {isSettingsOpen && (
         <ApiSettingsModal
           isOpen={isSettingsOpen}

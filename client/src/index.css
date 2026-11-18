@@ -1,7 +1,26 @@
 @import "tailwindcss";
 
 @layer base {
+  html {
+    font-family:
+      "Pretendard Variable",
+      Pretendard,
+      -apple-system,
+      BlinkMacSystemFont,
+      system-ui,
+      Roboto,
+      "Noto Sans KR",
+      sans-serif;
+    letter-spacing: -0.015em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply bg-[#F7F8FA] text-slate-900 selection:bg-slate-900 selection:text-white;
+  }
+
+  button {
+    @apply cursor-pointer;
   }
 }

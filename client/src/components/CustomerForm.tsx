@@ -3,13 +3,14 @@ import axios from 'axios';
 import { useKakaoPostcodePopup, type Address } from 'react-daum-postcode';
 import {
   Search,
-  Save,
-  CheckCircle,
+  CheckCircle2,
   MapPin,
   Plus,
   AlertCircle,
-  Database,
-  Sparkles,
+  PenLine,
+  UserPlus,
+  RotateCcw,
+  Check,
 } from 'lucide-react';
 import {
   API_URL,
@@ -20,14 +21,10 @@ import {
 import type { GridRow } from './ShippingGrid';
 
 interface CustomerFormProps {
-  /** 현재 선택되어 수정 중인 그리드 행 (없으면 신규 입력 모드) */
   activeRow: GridRow | null;
-  /** 중복 추가 검사용 현재 그리드 내 전화번호 목록 */
   existingPhones: string[];
-  /** 상단 알림 상태 메시지 */
   status: StatusMessage;
   onStatusChange: (status: StatusMessage) => void;
-  /** 신규 행 그리드 추가 콜백 */
   onAddNewRow: (data: {
     phone: string;
     name: string;
@@ -36,7 +33,6 @@ interface CustomerFormProps {
     detail_address: string;
     isExistingCustomer: boolean;
   }) => void;
-  /** 선택된 기존 행 수정 및 확인 완료 콜백 */
   onUpdateRow: (
     tempId: string,
     data: {
@@ -47,17 +43,9 @@ interface CustomerFormProps {
       detail_address: string;
     }
   ) => void;
-  /** 행 선택 해제 콜백 */
   onCancelEdit: () => void;
 }
 
-/**
- * CustomerForm - 고객 배송지 단건 입력 및 선택 행 수정·확인 폼
- *
- * 왜 DB 즉시 덮어쓰기 대신 그리드 확인 반영 방식을 사용하는가:
- * AI가 분석한 변경/신규 주소를 사용자가 최종 확인하고 내보내기 전까지는 기존 DB가 무작정 변경되지 않도록 보호하기 위함.
- * (최종 [확정 저장 & 엑셀 내보내기] 시 확인 완료된 행들이 일괄로 DB 및 구글 시트에 저장됨)
- */
 export default function CustomerForm({
   activeRow,
   existingPhones,
@@ -77,12 +65,10 @@ export default function CustomerForm({
     activeRow ? !activeRow._isNew : false
   );
 
-  // 카카오 우편번호 검색 팝업 훅
   const openPostcode = useKakaoPostcodePopup(
     'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js'
   );
 
-  /** 카카오 주소검색 완료 시 5자리 우편번호(0 보존) 및 기본주소 자동 조합 */
   const handlePostcodeComplete = (data: Address) => {
     let fullAddress = data.address;
     let extraAddress = '';
@@ -107,13 +93,7 @@ export default function CustomerForm({
     });
   };
 
-  /**
-   * 전화번호로 기존 DB 고객 수동 검색 (+82 국가번호 자동 변환 지원)
-   * 왜: 그리드 행을 이미 편집 중일 때는 실수로 포커스가 벗어나(onBlur) AI가 찾아둔 새 주소가
-   * 예전 DB 주소로 덮어써지지 않도록 수동 [검색] 버튼 클릭 시에만 덮어쓰기를 수행함.
-   */
   const searchCustomer = async (isAutoBlur = false) => {
-    // 행 수정 모드에서 이미 주소가 채워져 있을 때는 onBlur 자동 덮어쓰기 방지
     if (isAutoBlur && activeRow && address.trim()) {
       return;
     }
@@ -138,7 +118,7 @@ export default function CustomerForm({
         setAddress(c.address || '');
         setDetailAddress(c.detail_address || '');
         setIsExistingCustomer(true);
-        onStatusChange({ type: 'success', message: '기존 DB 고객 정보가 불러와졌습니다.' });
+        onStatusChange({ type: 'success', message: '기존 DB 고객 정보를 불러왔습니다.' });
       } else {
         if (!activeRow) {
           setName('');
@@ -147,17 +127,15 @@ export default function CustomerForm({
           setDetailAddress('');
         }
         setIsExistingCustomer(false);
-        onStatusChange({ type: 'info', message: 'DB에 없는 신규 전화번호입니다. 주소를 입력해주세요.' });
+        onStatusChange({ type: 'info', message: '신규 전화번호입니다. 주소를 입력해주세요.' });
       }
-    } catch (error) {
-      console.error('Customer search error:', error);
+    } catch {
       onStatusChange({ type: 'error', message: '고객 검색 중 오류가 발생했습니다.' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  /** 기존 DB 비교 정보가 있을 때 폼에 그대로 불러오기 */
   const applyPrevDbToForm = () => {
     if (!activeRow?._prevDbInfo) return;
     const prev = activeRow._prevDbInfo;
@@ -165,10 +143,12 @@ export default function CustomerForm({
     setZipcode(normalizeClientZipcode(prev.zipcode));
     setAddress(prev.address || '');
     setDetailAddress(prev.detail_address || '');
-    onStatusChange({ type: 'info', message: '기존 DB 주소·이름을 입력칸에 불러왔습니다. [그리드 수정 & 확인]을 눌러주세요.' });
+    onStatusChange({
+      type: 'info',
+      message: '기존 DB 정보를 채웠습니다. [수정 반영] 버튼을 눌러주세요.',
+    });
   };
 
-  /** 폼 초기화 및 선택 해제 */
   const resetFields = () => {
     setPhone('');
     setName('');
@@ -179,10 +159,6 @@ export default function CustomerForm({
     onCancelEdit();
   };
 
-  /**
-   * 폼 제출 시 그리드 행 반영 및 확인 완료(_isConfirmed = true) 처리
-   * (실제 DB 및 구글 시트 저장은 모든 검토가 끝난 뒤 [확정 저장 & 엑셀 내보내기]에서 안전하게 수행됨)
-   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -195,15 +171,14 @@ export default function CustomerForm({
     }
 
     if (!address.trim()) {
-      onStatusChange({ type: 'error', message: '기본 주소를 입력하거나 [검색] 버튼으로 찾아주세요.' });
+      onStatusChange({ type: 'error', message: '기본 주소를 입력하거나 검색해주세요.' });
       return;
     }
 
     if (!activeRow && existingPhones.includes(normalizedPhone)) {
       onStatusChange({
         type: 'error',
-        message:
-          '이미 그리드에 같은 전화번호가 있습니다. 아래 목록에서 해당 행을 클릭하여 수정하세요.',
+        message: '이미 목록에 있는 번호입니다. 아래 표에서 해당 행을 클릭해 수정해주세요.',
       });
       return;
     }
@@ -220,7 +195,7 @@ export default function CustomerForm({
       });
       onStatusChange({
         type: 'success',
-        message: '✅ 그리드에 수정 내용이 반영되고 [확인 완료] 처리되었습니다.',
+        message: '수정한 내용이 목록에 반영되고 확인 완료 처리되었습니다.',
       });
     } else {
       onAddNewRow({
@@ -233,7 +208,7 @@ export default function CustomerForm({
       });
       onStatusChange({
         type: 'success',
-        message: '✅ 그리드에 새 고객이 추가되었습니다. (내보내기 시 DB에 최종 저장됩니다)',
+        message: '새 고객이 목록에 추가되었습니다.',
       });
     }
 
@@ -249,82 +224,104 @@ export default function CustomerForm({
     }
   };
 
+  const inputBaseClass =
+    'h-10 rounded-xl bg-slate-50/70 hover:bg-slate-50 focus:bg-white border border-slate-200/90 px-3.5 text-[13px] text-slate-800 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition placeholder:text-slate-400';
+
   return (
-    <div
+    <section
       id="top-form"
-      className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden"
+      className={`bg-white rounded-2xl border transition-all overflow-hidden ${
+        activeRow
+          ? 'border-indigo-300 shadow-[0_2px_12px_rgba(79,70,229,0.08)]'
+          : 'border-slate-200/80 shadow-[0_1px_3px_rgba(15,23,42,0.03)]'
+      }`}
     >
-      {/* 폼 헤더 */}
-      <div className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Save size={18} />
-          <span className="font-bold text-sm">
-            {activeRow ? '📝 선택 행 수정 및 확인 모드' : '➕ 단건 수동 입력'}
-          </span>
-        </div>
-        {activeRow && (
-          <button
-            type="button"
-            onClick={resetFields}
-            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition font-medium"
+      {/* 미니멀 헤더 */}
+      <div className="px-6 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+              activeRow
+                ? 'bg-indigo-50 text-indigo-600'
+                : 'bg-slate-100 text-slate-600'
+            }`}
           >
-            선택 해제 (신규 입력으로)
-          </button>
-        )}
+            {activeRow ? <PenLine size={14} /> : <UserPlus size={14} />}
+          </div>
+          <span className="font-semibold text-[14px] text-slate-900">
+            {activeRow ? '선택 고객 수정' : '직접 입력 · 검색'}
+          </span>
+          {activeRow && (
+            <span className="text-[11px] font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-mono">
+              {activeRow.phone}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {status.message && (
+            <div
+              className={`px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
+                status.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : status.type === 'error'
+                    ? 'bg-rose-50 text-rose-700'
+                    : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {status.type === 'error' ? (
+                <AlertCircle size={13} />
+              ) : (
+                <CheckCircle2 size={13} />
+              )}
+              <span>{status.message}</span>
+            </div>
+          )}
+
+          {activeRow && (
+            <button
+              type="button"
+              onClick={resetFields}
+              className="text-xs text-slate-500 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/70 px-3 py-1.5 rounded-lg transition font-medium"
+            >
+              선택 취소
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* 상태 알림 메시지 */}
-      {status.message && (
-        <div
-          className={`px-5 py-2.5 text-xs font-semibold flex items-center gap-2 ${
-            status.type === 'success'
-              ? 'bg-green-50 text-green-700'
-              : status.type === 'error'
-                ? 'bg-red-50 text-red-700'
-                : 'bg-blue-50 text-blue-700'
-          }`}
-        >
-          {status.type === 'error' ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
-          {status.message}
-        </div>
-      )}
-
-      {/* 변경된 행('MODIFIED') 편집 시에만 기존 DB 비교 데이터 표시 */}
+      {/* 변경 건 편집 시 이전 DB 참고 라인 */}
       {activeRow?._prevDbInfo && activeRow._reviewStatus === 'MODIFIED' && (
-        <div className="mx-5 mt-4 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <div className="mx-6 mt-3.5 px-3.5 py-2 bg-slate-50 border border-slate-200/70 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <div>
-            <strong className="text-slate-700 mr-1.5">기존 DB 정보:</strong>[
-            {activeRow._prevDbInfo.name}] ({normalizeClientZipcode(activeRow._prevDbInfo.zipcode)}){' '}
+            <span className="font-semibold text-slate-600 mr-1.5">기존 저장 데이터</span>
+            {activeRow._prevDbInfo.name} · ({normalizeClientZipcode(activeRow._prevDbInfo.zipcode)}){' '}
             {activeRow._prevDbInfo.address} {activeRow._prevDbInfo.detail_address}
           </div>
           <button
             type="button"
             onClick={applyPrevDbToForm}
-            className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold px-2.5 py-1 rounded-lg transition"
+            className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 bg-white border border-slate-200 font-medium px-2.5 py-1 rounded-lg transition"
           >
-            <Database size={12} /> 기존 DB 주소 채우기
+            <RotateCcw size={11} /> 기존 데이터로 되돌리기
           </button>
         </div>
       )}
 
-      {/* 폼 본체 */}
-      <form onSubmit={handleSubmit} className="p-5 space-y-4">
-        {/* 1행: 전화번호 + 이름 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              전화번호 <span className="text-red-500">*</span>
-              <span className="text-[11px] font-normal text-slate-400 ml-1.5">
-                (+82 국가번호 붙여넣기 시 자동 변환)
-              </span>
+      {/* 입력 폼 */}
+      <form onSubmit={handleSubmit} className="px-6 py-4 space-y-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+          {/* 전화번호 (4칸) */}
+          <div className="md:col-span-4">
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              전화번호
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 value={phone}
                 onChange={(e) => {
                   const rawVal = e.target.value;
-                  // +82 로 시작하는 전체 번호를 붙여넣은 경우 즉시 010...으로 변환
                   if (rawVal.trim().startsWith('+82') && rawVal.replace(/\D/g, '').length >= 11) {
                     setPhone(normalizeClientPhone(rawVal));
                   } else {
@@ -332,8 +329,8 @@ export default function CustomerForm({
                   }
                   setIsExistingCustomer(false);
                 }}
-                placeholder="010-0000-0000 또는 +8210..."
-                className="flex-1 rounded-lg border-slate-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 border p-2.5 text-sm"
+                placeholder="010-0000-0000"
+                className={`flex-1 min-w-0 font-mono ${inputBaseClass}`}
                 onBlur={() => searchCustomer(true)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchCustomer(false))}
                 required
@@ -342,27 +339,25 @@ export default function CustomerForm({
                 type="button"
                 onClick={() => searchCustomer(false)}
                 disabled={isLoading}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 rounded-lg font-medium flex items-center gap-1.5 transition text-sm whitespace-nowrap"
-                title="전화번호로 기존 DB에 저장된 주소를 불러옵니다"
+                className="h-10 bg-slate-100 hover:bg-slate-200/80 text-slate-700 px-3 rounded-xl font-medium flex items-center gap-1.5 transition text-xs whitespace-nowrap"
               >
-                <Search size={15} />
-                DB검색
+                <Search size={13} />
+                조회
               </button>
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-600">
-                이름 <span className="text-red-500">*</span>
-              </label>
+          {/* 이름 (3칸) */}
+          <div className="md:col-span-3">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-semibold text-slate-500">고객명</label>
               {activeRow?._chatNameHint && !name.trim() && (
                 <button
                   type="button"
                   onClick={() => setName(activeRow._chatNameHint || '')}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition"
+                  className="text-[11px] font-semibold text-indigo-600 hover:underline"
                 >
-                  <Sparkles size={11} /> 채팅 이름 채우기: {activeRow._chatNameHint}
+                  +{activeRow._chatNameHint}
                 </button>
               )}
             </div>
@@ -370,81 +365,75 @@ export default function CustomerForm({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="고객명 (태국어/영문/한글)"
-              className="w-full rounded-lg border-slate-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 border p-2.5 text-sm"
+              placeholder="한글 / 영문 / 태국어"
+              className={`w-full ${inputBaseClass}`}
             />
           </div>
-        </div>
 
-        {/* 2행: 우편번호 + 기본주소 + 상세주소 */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-            주소 <span className="text-red-500">*</span>
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            {/* 좌측(7칸): 우편번호 + 기본 주소 + 카카오 우편번호 검색 버튼 */}
-            <div className="md:col-span-7 flex gap-2">
+          {/* 우편번호 + 기본주소 (5칸) */}
+          <div className="md:col-span-5">
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              우편번호 · 기본주소
+            </label>
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 value={zipcode}
                 onChange={(e) => setZipcode(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
                 onBlur={() => setZipcode((prev) => normalizeClientZipcode(prev))}
                 placeholder="우편번호"
-                className="w-24 rounded-lg border-slate-300 shadow-xs bg-slate-50 focus:bg-white border p-2.5 text-sm font-mono text-slate-700 shrink-0"
+                className={`w-21 shrink-0 font-mono text-center px-2 ${inputBaseClass}`}
               />
               <input
                 type="text"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                placeholder="기본 주소 ([검색] 버튼 클릭 시 정확한 우편번호와 함께 자동 입력)"
-                className="flex-1 min-w-0 rounded-lg border-slate-300 shadow-xs bg-slate-50 focus:bg-white border p-2.5 text-sm text-slate-700"
+                placeholder="기본 주소"
+                className={`flex-1 min-w-0 ${inputBaseClass}`}
               />
               <button
                 type="button"
                 onClick={handleOpenPostcode}
-                className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-3.5 py-2.5 rounded-lg font-semibold flex items-center gap-1.5 transition border border-blue-200 text-sm whitespace-nowrap shrink-0"
+                className="h-10 bg-slate-100 hover:bg-slate-200/80 text-slate-700 px-3 rounded-xl font-medium flex items-center gap-1 transition text-xs whitespace-nowrap shrink-0"
               >
-                <MapPin size={15} />
-                검색
+                <MapPin size={13} />
+                주소검색
               </button>
-            </div>
-
-            {/* 우측(5칸): 상세 주소 입력 */}
-            <div className="md:col-span-5">
-              <input
-                type="text"
-                value={detailAddress}
-                onChange={(e) => setDetailAddress(e.target.value)}
-                placeholder="상세 주소 (건물명, 동/호수, 현관비밀번호 등)"
-                className="w-full rounded-lg border-slate-300 shadow-xs focus:border-blue-500 focus:ring-blue-500 border p-2.5 text-sm"
-              />
             </div>
           </div>
         </div>
 
-        {/* 저장 / 수정 확인 버튼 */}
-        <div className="flex gap-2">
+        {/* 2행: 상세주소 + 제출 버튼 한 줄 배치로 컴팩트하게 */}
+        <div className="flex flex-col sm:flex-row gap-2.5 pt-0.5">
+          <input
+            type="text"
+            value={detailAddress}
+            onChange={(e) => setDetailAddress(e.target.value)}
+            placeholder="상세 주소 (건물명, 동/호수, 공동현관 비밀번호 등)"
+            className={`flex-1 ${inputBaseClass}`}
+          />
+
           <button
             type="submit"
             disabled={isLoading}
-            className={`flex-1 font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2 text-sm ${
+            className={`h-10 px-6 rounded-xl font-semibold text-[13px] transition flex items-center justify-center gap-1.5 shrink-0 shadow-2xs ${
               activeRow
-                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200'
-                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
             }`}
           >
             {activeRow ? (
               <>
-                <Save size={18} /> 그리드 수정 & 확인 완료
+                <Check size={15} /> 수정 반영 및 확인
               </>
             ) : (
               <>
-                <Plus size={18} /> 그리드에 추가
+                <Plus size={15} /> 목록에 추가
               </>
             )}
           </button>
         </div>
       </form>
-    </div>
+    </section>
   );
 }
