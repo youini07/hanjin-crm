@@ -196,7 +196,11 @@ export function useSyncedGrid({
       onStatusChange({ type: 'error', message: msg.replace('\n', ' ') });
       window.alert(msg);
 
-      const firstTarget = document.getElementById(`row-${unconfirmedWithAddr[0]._tempId}`);
+      const targetId = unconfirmedWithAddr[0]._tempId;
+      const mobileCard = document.getElementById(`card-${targetId}`);
+      const desktopRow = document.getElementById(`row-${targetId}`);
+      const firstTarget =
+        mobileCard && mobileCard.offsetParent !== null ? mobileCard : desktopRow;
       firstTarget?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }

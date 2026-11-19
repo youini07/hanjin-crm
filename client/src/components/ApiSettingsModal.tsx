@@ -164,12 +164,12 @@ export default function ApiSettingsModal({
   };
 
   const inputClass =
-    'w-full h-10 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200/90 px-3.5 text-xs text-slate-800 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition placeholder:text-slate-400';
+    'w-full h-11 sm:h-10 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200/90 px-3.5 text-base sm:text-xs text-slate-800 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition placeholder:text-slate-400 placeholder:text-xs';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 backdrop-blur-xs p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs z-10">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/35 backdrop-blur-xs p-0 sm:p-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg max-h-[92vh] overflow-y-auto pb-safe-bottom">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs z-10">
           <div>
             <h2 className="font-bold text-[15px] text-slate-900">환경 설정</h2>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -185,7 +185,7 @@ export default function ApiSettingsModal({
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-5">
+        <form onSubmit={handleSave} className="p-4 sm:p-6 space-y-5">
           {feedback && (
             <div
               className={`p-3 rounded-xl text-xs font-medium flex items-start gap-2 ${

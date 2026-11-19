@@ -14,13 +14,25 @@
     letter-spacing: -0.015em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    @apply bg-[#F7F8FA] text-slate-900 selection:bg-slate-900 selection:text-white;
+    @apply bg-[#F7F8FA] text-slate-900 selection:bg-slate-900 selection:text-white overflow-x-hidden;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   button {
     @apply cursor-pointer;
+    touch-action: manipulation;
   }
+}
+
+/* 모바일 상단 노치(Safe Area) 대응 유틸리티 */
+.pt-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }

@@ -120,6 +120,30 @@ const SYSTEM_INSTRUCTION = `당신은 한국 택배 송장 정리를 돕는 다�
 5. 전화번호는 +821024644186, 010 - 26018073, 010-759-39711, 010이 생략된 8자리(3938-1544)까지 추출하되, 5자리 우편번호나 현관 비밀번호는 절대 전화번호로 넣지 마세요.
 6. 기본주소(base_address)와 상세주소(detail_address)를 정확히 분리하고, 어순 역전("28 방내시장길"->"방내시장길 28") 및 외국인 지명 오타("계옹상북도"->"경상북도", "사복중앙로"->"사북중앙로", "수 섬3길"->"수성3길", "상북도 문경시"->"경상북도 문경시", "주거제시"->"경남 거제시")를 보정해 base_address에 넣으세요. 오타를 보정했다면 has_typo=true와 짧은 typo_note를 남기세요.`;
 
+/**
+ * 모바일 카카오톡 캡처(범위 캡처·스크롤 캡처 포함) 이미지 전용 텍스트 추출 지침
+ * 왜 별도 지침으로 분리했는가:
+ * 모바일 캡처 화면에는 말풍선 옆 노란색 안 읽은 숫자(1, 2, 3), 발신자 프로필명, 시간, 이모티콘 등이 함께 찍히므로
+ * 이를 먼저 깨끗한 채팅 원문으로 정제해 기존 붙여넣기 창(textarea)에 넣어주어야 사용자가 눈으로 검토하고 기존 AI 파서를 그대로 재사용할 수 있음.
+ */
+const IMAGE_OCR_SYSTEM_INSTRUCTION = `당신은 모바일 카카오톡 대화 캡처 이미지에서 주문 관련 말풍선 텍스트만 위에서 아래 순서대로 정확히 추출하는 다국어(한국어·영어·태국어·라오스어) OCR 전문 AI입니다.
+
+[필수 추출 규칙]
+1. 반드시 이미지의 **위에서 아래 순서 그대로** 말풍선 내부 텍스트만 추출하세요.
+2. 말풍선 바깥의 카카오톡 UI 요소는 **절대 포함하지 마세요**:
+   - 말풍선 위에 적힌 상대방 프로필 이름(예: Dreamstyle 등 발신자 표시) 제외
+   - 말풍선 옆 노란색 안 읽은 사람 수 숫자(1, 2, 3 등) 절대 제외 (주소 번지수나 전화번호 뒷자리에 섞이지 않게 각별히 주의!)
+   - 말풍선 옆 시각 표시(오전 6:34, 오후 1:20 등), 날짜 말풍선(19/11 등), 상단 상태바 제외
+   - "메시지가 삭제되었습니다.", 캐릭터 이모티콘/스티커(Okay! 등) 제외
+3. 말풍선 안의 내용은 글자 하나 빠뜨리지 말고 원문 그대로 추출하세요:
+   - 한국어 주소, 건물명, 동·호수, 현관 비밀번호
+   - 파란색 밑줄이 그어진 전화번호(010-xxxx-xxxx, 010 xxxxxxxx 등) 및 주소 링크 텍스트
+   - 영문 수취인 이름 및 태국어/라오스어 텍스트(예: "FB ร่ำรวย เงินทอง", "FB นู่เพ็ญ ล้อมค้อม" 등 성조 기호까지 정확히 보존)
+   - 주소에 외국인 발음 오타가 있더라도 임의로 고치지 말고 이미지에 적힌 글자 그대로 적으세요.
+4. 말풍선 안에 주소가 적힌 사진(종이/화면 촬영본)이 들어 있어 글자를 읽을 수 있다면 그 안의 주소·이름·전화번호를 텍스트로 읽어 적고, 글자가 없는 일반 사진 썸네일이면 "사진"이라고만 적으세요.
+5. 각 말풍선 사이는 줄바꿈으로 구분하고, 하나의 주문 묶음("FB ..." 말풍선 직후 등)이 끝날 때는 빈 줄을 한 줄 넣어 가독성을 높이세요.
+6. 인사말, 설명, 마크다운 코드블록(\`\`\`) 없이 **오직 추출된 순수 텍스트만** 출력하세요. 추출할 대화 텍스트가 전혀 없으면 빈 문자열만 반환하세요.`;
+
 function splitChatIntoChunks(rawText, maxChunkChars = 5500) {
     const trimmed = String(rawText || '').trim();
     if (trimmed.length <= maxChunkChars) {
@@ -628,8 +652,178 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
     };
 }
 
+/**
+ * 단일 캡처 이미지 조각(타일)에서 Gemini Vision으로 카카오톡 대화 텍스트 추출
+ * 왜: 세로로 긴 스크롤 캡처 이미지를 적정 높이로 분할한 뒤 조각별로 호출해야
+ * 모델 내부 리사이징으로 인한 전화번호 숫자·태국어 글자 뭉개짐을 방지할 수 있음.
+ */
+async function callGeminiExtractImageTile(tile, apiKey, modelName) {
+    const targetModel = (modelName || DEFAULT_GEMINI_MODEL).trim();
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        targetModel
+    )}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+
+    const rawBase64 = String(tile?.data || '').replace(/^data:[^;]+;base64,/, '').trim();
+    const mimeType = String(tile?.mimeType || 'image/jpeg').trim();
+
+    if (!rawBase64) {
+        return '';
+    }
+
+    const body = {
+        systemInstruction: {
+            parts: [{ text: IMAGE_OCR_SYSTEM_INSTRUCTION }],
+        },
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType,
+                            data: rawBase64,
+                        },
+                    },
+                    {
+                        text: '이 카카오톡 캡처 화면에서 말풍선 속 텍스트만 위에서 아래 순서대로 정확히 추출해 주세요.',
+                    },
+                ],
+            },
+        ],
+        generationConfig: {
+            temperature: 0.05,
+        },
+    };
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+    });
+
+    if (!res.ok) {
+        let errDetail = '';
+        try {
+            const errJson = await res.json();
+            errDetail = errJson?.error?.message || JSON.stringify(errJson);
+        } catch {
+            errDetail = await res.text();
+        }
+        throw new Error(`Gemini 이미지 인식 오류 (${res.status}): ${errDetail}`);
+    }
+
+    const data = await res.json();
+    const textOut = data?.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text || '')
+        .join('')
+        .trim();
+
+    if (!textOut) {
+        return '';
+    }
+
+    // 혹시 마크다운 코드블록(```)으로 감싸져 반환된 경우 안전하게 벗겨냄
+    return textOut
+        .replace(/^```(?:text|plain)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+}
+
+/**
+ * 분할된 세로 타일들의 텍스트를 위->아래 순서대로 병합하되,
+ * 불가피하게 겹침(overlap) 구간에서 잘렸을 때 경계면에 동일 줄이 2번 찍히는 현상을 제거
+ */
+function mergeTileTextsWithoutOverlapDuplicate(tileTexts) {
+    const validChunks = tileTexts.map((t) => String(t || '').trim()).filter(Boolean);
+    if (validChunks.length === 0) return '';
+    if (validChunks.length === 1) return validChunks[0];
+
+    const normLine = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
+    let accLines = validChunks[0].split(/\r?\n/);
+
+    for (let i = 1; i < validChunks.length; i++) {
+        const nextLines = validChunks[i].split(/\r?\n/);
+
+        // 이전 청크 끝부분 비어있지 않은 줄들과 다음 청크 앞부분 줄들의 최대 5줄 겹침 검사
+        const prevNonEmptyIdx = [];
+        for (let p = accLines.length - 1; p >= 0 && prevNonEmptyIdx.length < 5; p--) {
+            if (accLines[p].trim()) prevNonEmptyIdx.unshift(p);
+        }
+        const nextNonEmptyIdx = [];
+        for (let n = 0; n < nextLines.length && nextNonEmptyIdx.length < 5; n++) {
+            if (nextLines[n].trim()) nextNonEmptyIdx.push(n);
+        }
+
+        let skipUntilNextIdx = 0;
+        const maxCheck = Math.min(prevNonEmptyIdx.length, nextNonEmptyIdx.length);
+
+        for (let k = maxCheck; k >= 1; k--) {
+            let allMatch = true;
+            for (let j = 0; j < k; j++) {
+                const prevLine = accLines[prevNonEmptyIdx[prevNonEmptyIdx.length - k + j]];
+                const nextLine = nextLines[nextNonEmptyIdx[j]];
+                if (normLine(prevLine) !== normLine(nextLine) || normLine(prevLine).length < 3) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                skipUntilNextIdx = nextNonEmptyIdx[k - 1] + 1;
+                break;
+            }
+        }
+
+        const slicedNext = nextLines.slice(skipUntilNextIdx);
+        if (slicedNext.length > 0) {
+            if (accLines.length > 0 && accLines[accLines.length - 1].trim() !== '') {
+                accLines.push('');
+            }
+            accLines = accLines.concat(slicedNext);
+        }
+    }
+
+    return accLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * 카카오톡 캡처 이미지(단일 또는 세로 분할 타일 배열)에서 대화 원문 텍스트 추출
+ */
+async function extractTextFromKakaoImages(tiles, settings = {}) {
+    const geminiApiKey = settings.gemini_api_key || process.env.GEMINI_API_KEY || '';
+    const geminiModel = settings.gemini_model || DEFAULT_GEMINI_MODEL;
+
+    if (!geminiApiKey.trim()) {
+        throw new Error(
+            'Gemini API 키가 설정되지 않았습니다. 우측 상단 [설정]에서 API 키를 입력해 주세요.'
+        );
+    }
+
+    if (!Array.isArray(tiles) || tiles.length === 0) {
+        throw new Error('분석할 캡처 이미지 데이터가 없습니다.');
+    }
+
+    if (tiles.length > 15) {
+        throw new Error('한 이미지당 분할 조각이 너무 많습니다 (최대 15조각). 이미지를 나누어 올려주세요.');
+    }
+
+    // mapWithConcurrency는 입력 배열 인덱스 순서를 100% 보장함 (위 -> 아래 순서 엄격 유지)
+    const tileTexts = await mapWithConcurrency(tiles, 2, (tile) =>
+        callGeminiExtractImageTile(tile, geminiApiKey, geminiModel)
+    );
+
+    const mergedText = mergeTileTextsWithoutOverlapDuplicate(tileTexts);
+
+    return {
+        model: geminiModel,
+        tileCount: tiles.length,
+        text: mergedText,
+    };
+}
+
 module.exports = {
     DEFAULT_GEMINI_MODEL,
     analyzeKakaoChatWithAI,
+    extractTextFromKakaoImages,
     testGeminiConnection,
 };

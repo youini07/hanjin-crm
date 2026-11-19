@@ -22,6 +22,7 @@ const { parseGripExcelBuffer, parseGripCsvText } = require('./grip_parser');
 const {
     DEFAULT_GEMINI_MODEL,
     analyzeKakaoChatWithAI,
+    extractTextFromKakaoImages,
     testGeminiConnection,
 } = require('./kakao_ai_parser');
 const { normalizeKoreanPhone, normalizeZipcode } = require('./utils/normalizer');
@@ -220,6 +221,30 @@ app.post('/api/kakao/ai-parse', async (req, res) => {
     } catch (err) {
         console.error('Kakao AI Parse Error:', err);
         res.status(500).json({ error: err.message || 'AI 채팅 분석 중 오류가 발생했습니다.' });
+    }
+});
+
+// ──────────────────────────────────────────────────────
+// [신규 API] 모바일 카카오톡 범위 캡처 이미지 -> 대화 원문 텍스트 추출
+// 왜: 모바일 카톡에서는 드래그 복사가 불가능하므로 캡처 이미지를 텍스트로 정제한 뒤
+// 프론트엔드 기존 붙여넣기 창에 업로드 순서대로 이어 붙여주기 위함
+// ──────────────────────────────────────────────────────
+app.post('/api/kakao/extract-image-text', async (req, res) => {
+    const { tiles } = req.body || {};
+    if (!Array.isArray(tiles) || tiles.length === 0) {
+        return res.status(400).json({ error: '추출할 캡처 이미지 데이터가 전달되지 않았습니다.' });
+    }
+
+    try {
+        const settings = await getAllSettings();
+        const result = await extractTextFromKakaoImages(tiles, settings);
+        res.json({
+            success: true,
+            ...result,
+        });
+    } catch (err) {
+        console.error('Kakao Image Extract Error:', err);
+        res.status(500).json({ error: err.message || '이미지 텍스트 추출 중 오류가 발생했습니다.' });
     }
 });
 

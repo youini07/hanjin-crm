@@ -128,35 +128,35 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50/60 transition"
+        className="w-full px-4 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between gap-2 hover:bg-slate-50/60 transition"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
             <FileSpreadsheet size={16} />
           </div>
-          <div className="text-left">
-            <span className="font-semibold text-[14px] text-slate-900">
+          <div className="text-left min-w-0">
+            <span className="font-semibold text-[14px] text-slate-900 block truncate">
               그립(Grip) 판매내역서 업로드
             </span>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5 truncate">
               동일 고객 주문을 합포장으로 묶고 품목명을 자동 요약합니다
             </p>
           </div>
         </div>
         <ChevronDown
           size={18}
-          className={`text-slate-400 transition-transform duration-200 ${
+          className={`text-slate-400 shrink-0 transition-transform duration-200 ${
             isExpanded ? 'rotate-180' : ''
           }`}
         />
       </button>
 
       {isExpanded && (
-        <div className="px-6 pb-5 pt-4 space-y-4 border-t border-slate-100">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="flex items-center justify-center gap-2.5 border border-dashed border-slate-300 bg-slate-50/60 hover:bg-slate-100/70 text-slate-700 rounded-xl p-4 cursor-pointer transition font-medium text-[13px]">
+        <div className="px-4 sm:px-6 pb-4 sm:pb-5 pt-3.5 space-y-3.5 border-t border-slate-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
+            <label className="flex items-center justify-center gap-2.5 border border-dashed border-slate-300 bg-slate-50/60 hover:bg-slate-100/70 text-slate-700 rounded-xl p-3.5 sm:p-4 cursor-pointer transition font-medium text-[13px]">
               <FileUp size={17} className="text-slate-500 shrink-0" />
-              <span>
+              <span className="truncate">
                 {selectedFileName
                   ? `${selectedFileName} (다시 선택)`
                   : '판매내역서 파일 선택 (.xlsx / .csv)'}
@@ -174,7 +174,7 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
               type="button"
               onClick={handleLoadSampleFile}
               disabled={isLoading}
-              className="flex items-center justify-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl p-4 transition font-medium text-[13px]"
+              className="flex items-center justify-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl p-3.5 sm:p-4 transition font-medium text-[13px]"
             >
               <FolderOpen size={17} className="text-slate-500 shrink-0" />
               <span>폴더 내 최신 주문서 불러오기</span>
@@ -186,7 +186,7 @@ export default function GripExcelImporter({ apiUrl, onImportCustomers }: GripExc
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
               placeholder="또는 그립 엑셀/CSV 시트 내용을 여기에 붙여넣으세요."
-              className="w-full h-24 rounded-xl bg-slate-50/60 focus:bg-white border border-slate-200/90 p-3.5 text-xs font-mono resize-y focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition placeholder:text-slate-400"
+              className="w-full h-24 rounded-xl bg-slate-50/60 focus:bg-white border border-slate-200/90 p-3.5 text-base sm:text-xs font-mono resize-y focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition placeholder:text-slate-400 placeholder:text-xs"
             />
 
             {csvText.trim() && (
