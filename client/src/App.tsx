@@ -251,12 +251,25 @@ function App() {
                 </button>
               </nav>
 
+              {/* 한진택배 Focus 로그인 페이지 바로가기 (PC 웹 & 모바일 웹앱 공통) */}
+              <a
+                href="https://focus.hanjin.com/login"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100/80 border border-sky-200/80 transition whitespace-nowrap shrink-0"
+                title="한진택배 기업택배(Focus) 로그인 페이지 열기"
+              >
+                <span className="sm:hidden">한진로그인</span>
+                <span className="hidden sm:inline">한진 Focus 로그인</span>
+                <ExternalLink size={13} className="shrink-0" />
+              </a>
+
               {/* 모바일/웹앱 다운로드 버튼 (이미 설치된 standalone 앱으로 실행 중일 때는 숨김) */}
               {!isStandalone && (
                 <button
                   type="button"
                   onClick={handleInstallButtonClick}
-                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-200/70 transition whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-200/70 transition whitespace-nowrap shrink-0"
                   title="모바일 웹앱 다운로드 (홈 화면 설치)"
                 >
                   <Download size={14} className="shrink-0" />

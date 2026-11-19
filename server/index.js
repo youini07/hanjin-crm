@@ -483,8 +483,9 @@ app.post('/api/customers/bulk-save-and-export', async (req, res) => {
             const detail_address = String(c.detail_address || '').trim();
             const fb_name = c.fb_name ? String(c.fb_name).trim() : '';
 
-            // 전화번호, 이름, 기본주소가 모두 있는 행만 송장 내보내기 및 DB 반영 허용 (빈 주소로 DB 덮어쓰기 방지)
-            if (!phone || !name || !address) {
+            // 전화번호, 이름, 기본주소, 5자리 우편번호가 모두 있는 행만 송장 내보내기 및 DB 반영 허용
+            // 왜: 우편번호가 없는 없는 주소(번지 오타 등)가 한진 엑셀 오류행으로 출력되거나 기존 DB 정상 주소를 덮어쓰는 사고를 원천 차단함
+            if (!phone || !name || !address || !/^\d{5}$/.test(zipcode)) {
                 skippedCount++;
                 continue;
             }

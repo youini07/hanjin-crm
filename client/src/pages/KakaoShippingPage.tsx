@@ -44,6 +44,7 @@ interface AiParsedItemFromServer {
   _addressPending?: AddressPendingType;
   _isConfirmed: boolean;
   _needsAddressCheck?: boolean;
+  _zipcodeMissing?: boolean;
   _chatNameHint?: string;
   _aiNote?: string;
   _prevDbInfo?: PrevDbCustomerInfo;
@@ -130,6 +131,7 @@ export default function KakaoShippingPage() {
               _addressPending: item._addressPending ?? null,
               _isConfirmed: item._isConfirmed,
               _needsAddressCheck: Boolean(item._needsAddressCheck),
+              _zipcodeMissing: Boolean(item._zipcodeMissing),
               _chatNameHint: item._chatNameHint || '',
               _aiNote: item._aiNote || '',
               _fbName: item._fbName || '',
@@ -147,10 +149,23 @@ export default function KakaoShippingPage() {
           return [...prev, ...toAppend];
         });
 
-        setStatus({
-          type: 'success',
-          message: `분석 완료 (${summary.total}건): 기존일치 ${summary.matched} · 정보변경 ${summary.modified} · 신규 ${summary.newCount} · 사진확인 ${summary.photoCheck}`,
-        });
+        const missingZip = summary.zipcodeMissingCount || 0;
+        if (missingZip > 0) {
+          setStatus({
+            type: 'error',
+            message: `분석 완료 (${summary.total}건) — 우편번호가 검색되지 않는 의심 주소 ${missingZip}건이 있습니다! 아래 빨간색 항목을 반드시 확인하세요.`,
+          });
+        } else if (summary.modified > 0) {
+          setStatus({
+            type: 'info',
+            message: `분석 완료 (${summary.total}건): 기존일치 ${summary.matched} · 주소/이름 변경 ${summary.modified}건(확인 필요) · 신규 ${summary.newCount}`,
+          });
+        } else {
+          setStatus({
+            type: 'success',
+            message: `분석 완료 (${summary.total}건): 기존일치 ${summary.matched} · 정보변경 ${summary.modified} · 신규 ${summary.newCount} · 사진확인 ${summary.photoCheck}`,
+          });
+        }
 
         return summary;
       } catch (error: unknown) {
@@ -255,6 +270,7 @@ export default function KakaoShippingPage() {
         _addressPending: null,
         _isConfirmed: true,
         _needsAddressCheck: false,
+        _zipcodeMissing: false,
         name: data.name,
         phone: normalizeClientPhone(data.phone),
         zipcode: normalizeClientZipcode(data.zipcode),
@@ -294,6 +310,7 @@ export default function KakaoShippingPage() {
             _addressPending: null,
             _isConfirmed: true,
             _needsAddressCheck: false,
+            _zipcodeMissing: false,
           };
         })
       );

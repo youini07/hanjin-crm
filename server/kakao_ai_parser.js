@@ -9,9 +9,37 @@ const { lookupOfficialAddress } = require('./address_service');
 const {
     normalizeKoreanPhoneDetail,
     normalizeZipcode,
+    extractCoreAddressTokens,
     isSameRepresentativeAddress,
     compareCustomerName,
 } = require('./utils/normalizer');
+
+/**
+ * 기존 DB 주소와 새 채팅 주소가 '동일 도로명(또는 동일 동·리)'인데 건물번호/지번 숫자만 다른지 정밀 판별
+ * 왜 필요한가:
+ * 예: DB '경기도 양주시 부흥로842번길 29' vs 고객 입력 '부흥로842번길 27'
+ * 실제 이사가 아니라 고객이 번지수만 1자리 잘못 적은 케이스를 핀포인트로 집어내어 작업자에게 강력히 경고하기 위함.
+ */
+function detectSameStreetNumberDiff(dbAddress, chatAddress) {
+    const dbTokens = extractCoreAddressTokens(dbAddress);
+    const chatTokens = extractCoreAddressTokens(chatAddress);
+    if (dbTokens.length === 0 || chatTokens.length === 0) return null;
+
+    for (const dt of dbTokens) {
+        const [dType, dStreet, dNum] = dt.split(':');
+        for (const ct of chatTokens) {
+            const [cType, cStreet, cNum] = ct.split(':');
+            if (dType === cType && dStreet === cStreet && dNum !== cNum) {
+                return {
+                    streetName: dStreet,
+                    dbNum: dNum,
+                    chatNum: cNum,
+                };
+            }
+        }
+    }
+    return null;
+}
 
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
@@ -530,7 +558,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                 }
             }
 
-            // [2-B] 대표주소가 달라진 경우 (이사!) -> 주소 칸에 [수정] 표시 (+ 이름도 바뀌었으면 이름 칸에도 [수정])
+            // [2-B] 대표주소가 달라진 경우 (이사 또는 고객 번지 오타!) -> 주소 칸에 [수정] 표시 (+ 이름도 바뀌었으면 이름 칸에도 [수정])
             if (!officialAddr.found && hasAddressApi) {
                 officialAddr = await lookupOfficialAddress(
                     ord.base_address,
@@ -553,9 +581,30 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                 : normalizeZipcode(ord.extracted_zipcode);
             const newBaseAddress = officialAddr.found ? officialAddr.address : ord.base_address;
             const nameChanged = !nameComp.isSame && Boolean(nameComp.cleanName);
+            const zipcodeMissing = !/^\d{5}$/.test(newZipcode);
+            const sameStreetDiff = detectSameStreetNumberDiff(
+                dbCustomer.address,
+                ord.base_address || ord.raw_address
+            );
 
-            if (!newZipcode) {
+            if (zipcodeMissing) {
                 needsAddressCheck = true;
+                if (hasAddressApi) {
+                    if (sameStreetDiff) {
+                        warningTags.unshift(
+                            `번지 오타 유력! (${sameStreetDiff.streetName} 기존 ${sameStreetDiff.dbNum} ↔ 입력 ${sameStreetDiff.chatNum} · 없는 주소)`
+                        );
+                    } else {
+                        warningTags.unshift('우편번호 미검색 (없는 주소이거나 오타 의심!)');
+                    }
+                } else {
+                    warningTags.unshift('우편번호 미입력 (주소검색 필요)');
+                }
+            } else if (sameStreetDiff) {
+                needsAddressCheck = true;
+                warningTags.unshift(
+                    `동일 도로명 번지 변경 (기존 ${sameStreetDiff.dbNum} → 입력 ${sameStreetDiff.chatNum})`
+                );
             }
 
             return {
@@ -573,6 +622,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                 _addressPending: 'MODIFIED',
                 _isConfirmed: false,
                 _needsAddressCheck: needsAddressCheck,
+                _zipcodeMissing: zipcodeMissing,
                 _aiNote: warningTags.join(' · '),
                 _prevDbInfo: {
                     name: dbCustomer.name || '',
@@ -609,9 +659,15 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             : normalizeZipcode(ord.extracted_zipcode);
         const newBaseAddress = officialAddr.found ? officialAddr.address : ord.base_address;
         const cleanName = compareCustomerName(ord.name, ord.alt_name, '').cleanName;
+        const zipcodeMissing = !/^\d{5}$/.test(newZipcode);
 
-        if (!newZipcode) {
+        if (zipcodeMissing) {
             needsAddressCheck = true;
+            if (hasAddressApi) {
+                warningTags.unshift('우편번호 미검색 (없는 주소이거나 번지 오타 의심!)');
+            } else {
+                warningTags.unshift('우편번호 미입력 (주소검색 필요)');
+            }
         }
 
         return {
@@ -629,6 +685,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             _addressPending: 'NEW',
             _isConfirmed: false,
             _needsAddressCheck: needsAddressCheck,
+            _zipcodeMissing: zipcodeMissing,
             _aiNote: warningTags.join(' · '),
         };
     });
@@ -642,6 +699,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             (i) => i._reviewStatus === 'PHOTO_CHECK' || i._reviewStatus === 'NO_ADDRESS'
         ).length,
         typoWarning: items.filter((i) => i._needsAddressCheck).length,
+        zipcodeMissingCount: items.filter((i) => i._zipcodeMissing).length,
     };
 
     return {

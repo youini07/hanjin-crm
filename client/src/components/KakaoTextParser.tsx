@@ -21,6 +21,7 @@ export interface AiParsedSummary {
   newCount: number;
   photoCheck: number;
   typoWarning: number;
+  zipcodeMissingCount?: number;
 }
 
 interface KakaoTextParserProps {
@@ -294,12 +295,20 @@ export default function KakaoTextParser({
             </span>
             <span className="text-slate-200">|</span>
             <span>
-              정보 변경 <strong className="text-indigo-600 ml-0.5">{lastAiSummary.modified}</strong>
+              정보 변경 <strong className="text-amber-700 ml-0.5">{lastAiSummary.modified}</strong>
             </span>
             <span className="text-slate-200">|</span>
             <span>
               신규 고객 <strong className="text-emerald-600 ml-0.5">{lastAiSummary.newCount}</strong>
             </span>
+            {(lastAiSummary.zipcodeMissingCount ?? 0) > 0 && (
+              <>
+                <span className="text-slate-200">|</span>
+                <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 font-bold">
+                  우편번호 미검색 {lastAiSummary.zipcodeMissingCount}건 확인 필수!
+                </span>
+              </>
+            )}
             {lastAiSummary.photoCheck > 0 && (
               <>
                 <span className="text-slate-200">|</span>

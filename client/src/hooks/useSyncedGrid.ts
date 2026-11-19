@@ -103,30 +103,53 @@ export function useSyncedGrid({
     [setGridRowsAndSync]
   );
 
-  /** [주소 칸] 단독 수정/확인 승인 또는 기존 DB 주소 유지 */
+  /**
+   * [주소 칸] 단독 수정/확인 승인 또는 기존 DB 주소 유지
+   * 왜 5자리 우편번호 검사를 추가했는가:
+   * 고객이 없는 번지(예: 29 대신 27)를 보내 우편번호가 검색되지 않았는데
+   * 무심코 [수정]을 눌러 한진택배 오류행이 발생하고 기존 DB 정상 주소까지 망가지는 사고를 원천 방지하기 위함.
+   */
   const handleConfirmAddressField = useCallback(
     (tempId: string, keepOldDb = false) => {
+      const targetRow = gridRows.find((r) => r._tempId === tempId);
+      if (targetRow && !keepOldDb) {
+        const nextZip = normalizeClientZipcode(targetRow.zipcode);
+        if (!/^\d{5}$/.test(nextZip)) {
+          const warnMsg =
+            '🚨 우편번호가 검색되지 않는 주소입니다! (없는 번지이거나 오타일 수 있습니다)\n\n• 고객 오타라면 [기존 DB 유지] 버튼을 누르시거나,\n• 실제 새 주소라면 해당 행을 클릭해 상단 [주소검색]으로 정확한 5자리 우편번호를 선택해주세요.';
+          onStatusChange({
+            type: 'error',
+            message:
+              '우편번호가 없는 미검증 주소입니다. [기존 DB 유지] 또는 상단 [주소검색]을 이용해주세요.',
+          });
+          window.alert(warnMsg);
+          return;
+        }
+      }
+
       setGridRowsAndSync((prev) =>
         prev.map((row) => {
           if (row._tempId !== tempId) return row;
           const usePrev = keepOldDb && row._prevDbInfo?.address;
+          const resolvedZip = usePrev
+            ? normalizeClientZipcode(row._prevDbInfo!.zipcode)
+            : normalizeClientZipcode(row.zipcode);
           const stillHasNamePending = Boolean(row._namePending);
           return {
             ...row,
-            zipcode: usePrev
-              ? normalizeClientZipcode(row._prevDbInfo!.zipcode)
-              : row.zipcode,
+            zipcode: resolvedZip,
             address: usePrev ? row._prevDbInfo!.address : row.address,
             detail_address: usePrev ? row._prevDbInfo!.detail_address : row.detail_address,
             _isDirty: usePrev ? Boolean(row._namePending) : row._isDirty,
             _addressPending: null,
             _needsAddressCheck: false,
+            _zipcodeMissing: !/^\d{5}$/.test(resolvedZip),
             _isConfirmed: !stillHasNamePending,
           };
         })
       );
     },
-    [setGridRowsAndSync]
+    [gridRows, setGridRowsAndSync, onStatusChange]
   );
 
   /** 여러 행 한꺼번에 확인(승인) 처리 */
@@ -205,22 +228,70 @@ export function useSyncedGrid({
       return;
     }
 
+    // 2단계 검증: 주소는 입력되어 있으나 5자리 우편번호가 없는 오류 주소 행 점검
+    const missingZipRows = gridRows.filter(
+      (r) =>
+        r.address.trim() !== '' &&
+        !/^\d{5}$/.test(normalizeClientZipcode(r.zipcode))
+    );
+
+    if (missingZipRows.length > 0) {
+      const targetId = missingZipRows[0]._tempId;
+      const mobileCard = document.getElementById(`card-${targetId}`);
+      const desktopRow = document.getElementById(`row-${targetId}`);
+      const firstTarget =
+        mobileCard && mobileCard.offsetParent !== null ? mobileCard : desktopRow;
+      firstTarget?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      const readyWithZipCount = gridRows.filter(
+        (r) =>
+          r.name.trim() &&
+          r.phone.trim() &&
+          r.address.trim() &&
+          /^\d{5}$/.test(normalizeClientZipcode(r.zipcode)) &&
+          !hasRowPendingAction(r)
+      ).length;
+
+      if (readyWithZipCount === 0) {
+        const errMsg = `🚨 5자리 우편번호가 없는 주소가 ${missingZipRows.length}건 있습니다!\n(한진택배 업로드 시 오류행이 발생합니다. 빨간색 행을 눌러 [주소검색] 또는 [기존 DB 유지]로 해결해주세요.)`;
+        onStatusChange({ type: 'error', message: errMsg.replace('\n', ' ') });
+        window.alert(errMsg);
+        return;
+      }
+
+      const skipMissingZip = window.confirm(
+        `🚨 우편번호가 없는 의심 주소가 ${missingZipRows.length}건 있습니다! (그대로 출력하면 한진택배에서 오류행이 됩니다)\n\n우편번호 없는 ${missingZipRows.length}건은 목록에 남겨두고, 정상 확인된 ${readyWithZipCount}건만 먼저 엑셀로 출력할까요?`
+      );
+      if (!skipMissingZip) {
+        onStatusChange({
+          type: 'error',
+          message: '빨간색으로 표시된 우편번호 미검색 행을 먼저 확인·수정해주세요.',
+        });
+        return;
+      }
+    }
+
     const validRows = gridRows.filter(
-      (r) => r.name.trim() && r.phone.trim() && r.address.trim() && !hasRowPendingAction(r)
+      (r) =>
+        r.name.trim() &&
+        r.phone.trim() &&
+        r.address.trim() &&
+        /^\d{5}$/.test(normalizeClientZipcode(r.zipcode)) &&
+        !hasRowPendingAction(r)
     );
 
     if (validRows.length === 0) {
       onStatusChange({
         type: 'error',
-        message: '내보내기할 유효한 배송 데이터가 없습니다. 이름과 주소를 확인해주세요.',
+        message: '내보내기할 유효한 배송 데이터(우편번호·주소 필수)가 없습니다.',
       });
       return;
     }
 
-    const incompleteRows = gridRows.filter((r) => !r.name.trim() || !r.address.trim());
-    if (incompleteRows.length > 0) {
+    const noAddressRows = gridRows.filter((r) => !r.name.trim() || !r.address.trim());
+    if (noAddressRows.length > 0) {
       const proceed = window.confirm(
-        `주소가 비어있는 신규 사진 주문 등이 ${incompleteRows.length}건 있습니다.\n해당 행은 남겨두고 확인 완료된 ${validRows.length}건만 먼저 내보내기할까요?`
+        `주소가 비어있는 신규 사진 주문 등이 ${noAddressRows.length}건 있습니다.\n해당 행은 남겨두고 확인 완료된 ${validRows.length}건만 먼저 내보내기할까요?`
       );
       if (!proceed) return;
     }
@@ -229,6 +300,7 @@ export function useSyncedGrid({
     onStatusChange({ type: '', message: '' });
 
     try {
+      const exportedIdSet = new Set(validRows.map((r) => r._tempId));
       const customers = validRows.map((r) => ({
         name: r.name.trim(),
         phone: normalizeClientPhone(r.phone),
@@ -268,7 +340,7 @@ export function useSyncedGrid({
         }
 
         setGridRowsAndSync((prev) =>
-          prev.filter((r) => !r.name.trim() || !r.address.trim())
+          prev.filter((r) => !exportedIdSet.has(r._tempId))
         );
         setCheckedIds(new Set());
         onResetSelection();

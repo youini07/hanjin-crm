@@ -181,6 +181,16 @@ export default function CustomerForm({
       return;
     }
 
+    // 한진택배 Focus 오류행 방지를 위해 5자리 우편번호 필수 검증
+    if (!/^\d{5}$/.test(safeZip)) {
+      onStatusChange({
+        type: 'error',
+        message:
+          '5자리 우편번호가 없습니다! [주소검색] 버튼을 눌러 실존하는 정확한 도로명/지번 주소를 선택해주세요.',
+      });
+      return;
+    }
+
     if (!activeRow && existingPhones.includes(normalizedPhone)) {
       onStatusChange({
         type: 'error',
@@ -300,6 +310,19 @@ export default function CustomerForm({
             <span className="leading-snug">{status.message}</span>
           </div>
         )}
+
+        {/* 우편번호 미검색 오류 행을 선택했을 때 상단 폼 경고 배너 */}
+        {activeRow &&
+          activeRow.address.trim() !== '' &&
+          !/^\d{5}$/.test(normalizeClientZipcode(zipcode)) && (
+            <div className="mx-4 sm:mx-6 mt-3 px-3.5 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-medium leading-relaxed">
+              <strong className="font-bold block text-rose-700">
+                🚨 우편번호가 검색되지 않는 주소입니다 (없는 번지·오타 의심)
+              </strong>
+              우측 <strong>[주소검색]</strong> 버튼으로 정확한 주소를 선택해 우편번호를 채우시거나, 기존 고객의 단순 오타라면 아래{' '}
+              <strong>[기존 데이터로 되돌리기]</strong>를 눌러주세요.
+            </div>
+          )}
 
         {/* 변경 건 편집 시 이전 DB 참고 라인 */}
         {activeRow?._prevDbInfo && activeRow._reviewStatus === 'MODIFIED' && (
