@@ -47,6 +47,7 @@ interface AiParsedItemFromServer {
   _zipcodeMissing?: boolean;
   _chatNameHint?: string;
   _aiNote?: string;
+  _jibunAddress?: string;
   _prevDbInfo?: PrevDbCustomerInfo;
 }
 
@@ -134,6 +135,7 @@ export default function KakaoShippingPage() {
               _zipcodeMissing: Boolean(item._zipcodeMissing),
               _chatNameHint: item._chatNameHint || '',
               _aiNote: item._aiNote || '',
+              _jibunAddress: item._jibunAddress || '',
               _fbName: item._fbName || '',
               _fbUpdated: Boolean(item._fbUpdated),
               _prevDbInfo: item._prevDbInfo,

@@ -404,6 +404,54 @@ function compareCustomerName(chatName, chatAltName, dbName) {
     return { isSame: false, cleanName: cleanChat };
 }
 
+/**
+ * 상세주소 앞부분에 공식 지번주소와 동일한 지번 숫자(예: '514-7')가 중복 결합된 경우 안전하게 분리
+ * 왜 필요한가:
+ * 고객이나 배송지 라벨이 '[산정공원로42번길 17] 514-7201호 부재시 문앞'처럼
+ * 도로명주소 뒤에 지번('514-7')과 호수('201호')를 띄어쓰기 없이 붙여 적는 경우가 빈번함.
+ * 공식 주소 API의 지번주소('월곡동 514-7')에서 지번 번호를 확인한 뒤,
+ * 뒤에 추가 호수나 상세정보가 이어질 때만 중복 지번 접두어를 제거해 순수 호수('201호 부재시 문앞')를 복원함.
+ *
+ * @param {string} detailAddress
+ * @param {string} officialJibunAddress
+ * @returns {{ detail: string, strippedJibun: string | null }}
+ */
+function stripRedundantJibunPrefix(detailAddress, officialJibunAddress) {
+    const cleanDetail = String(detailAddress || '').trim();
+    const cleanJibun = String(officialJibunAddress || '').trim();
+    if (!cleanDetail || !cleanJibun) {
+        return { detail: cleanDetail, strippedJibun: null };
+    }
+
+    const jibunMatch = cleanJibun.match(/(\d+(?:-\d+)?)(?:\s*\([^)]*\))?\s*$/);
+    if (!jibunMatch) {
+        return { detail: cleanDetail, strippedJibun: null };
+    }
+
+    const jibunNo = jibunMatch[1];
+    const escapedJibun = jibunNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // '514-7201호'처럼 지번 바로 뒤에 호수 숫자가 붙은 경우 (단, '514-7호'처럼 추가 호수가 없으면 유지)
+    const attachedRoomRegex = new RegExp(`^${escapedJibun}(?=\\d{1,4}(?:동|호|층|방)(?:$|\\s))`);
+    if (attachedRoomRegex.test(cleanDetail)) {
+        const stripped = cleanDetail.replace(attachedRoomRegex, '').trim();
+        if (stripped) {
+            return { detail: stripped, strippedJibun: jibunNo };
+        }
+    }
+
+    // '514-7 201호' 또는 '514-7번지 201호'처럼 공백 뒤 상세정보가 이어지는 경우
+    const spacedJibunRegex = new RegExp(`^${escapedJibun}(?:번지)?(?=\\s+\\S)`);
+    if (spacedJibunRegex.test(cleanDetail)) {
+        const stripped = cleanDetail.replace(spacedJibunRegex, '').trim();
+        if (stripped) {
+            return { detail: stripped, strippedJibun: jibunNo };
+        }
+    }
+
+    return { detail: cleanDetail, strippedJibun: null };
+}
+
 module.exports = {
     normalizeKoreanPhoneDetail,
     normalizeKoreanPhone,
@@ -412,4 +460,5 @@ module.exports = {
     isSameRepresentativeAddress,
     compareCustomerName,
     compareDetailAddress,
+    stripRedundantJibunPrefix,
 };

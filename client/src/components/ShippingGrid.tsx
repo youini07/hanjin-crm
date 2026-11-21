@@ -35,6 +35,7 @@ export interface GridRow {
   _needsAddressCheck?: boolean;
   _zipcodeMissing?: boolean;
   _aiNote?: string;
+  _jibunAddress?: string;
   _chatNameHint?: string;
   _fbName?: string;
   _fbUpdated?: boolean;
@@ -704,6 +705,11 @@ export default function ShippingGrid({
                             </span>
                             {row.address}
                             {row.detail_address ? ` · ${row.detail_address}` : ''}
+                            {row._jibunAddress && row._jibunAddress !== row.address && (
+                              <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                지번: {row._jibunAddress}
+                              </div>
+                            )}
                           </div>
 
                           {onConfirmAddressField && (
@@ -768,6 +774,11 @@ export default function ShippingGrid({
                           <div className="text-slate-800 font-medium">
                             {row.address}
                             {row.detail_address ? ` · ${row.detail_address}` : ''}
+                            {row._jibunAddress && row._jibunAddress !== row.address && (
+                              <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                지번: {row._jibunAddress}
+                              </div>
+                            )}
                           </div>
                           {onConfirmAddressField && row.address.trim() && (
                             <button
@@ -789,6 +800,11 @@ export default function ShippingGrid({
                       ) : (
                         <div className="text-slate-700">
                           <div>{row.address}</div>
+                          {row._jibunAddress && row._jibunAddress !== row.address && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              지번: {row._jibunAddress}
+                            </div>
+                          )}
                           {row.detail_address && (
                             <div className="text-xs text-slate-500 mt-0.5">
                               {row.detail_address}
@@ -1094,6 +1110,11 @@ export default function ShippingGrid({
                                   새 주소:
                                 </span>
                                 {row.address}
+                                {row._jibunAddress && row._jibunAddress !== row.address && (
+                                  <div className="text-[11px] text-slate-400 font-normal mt-0.5">
+                                    지번: {row._jibunAddress}
+                                  </div>
+                                )}
                               </div>
 
                               {onConfirmAddressField && (
@@ -1123,11 +1144,18 @@ export default function ShippingGrid({
                           </div>
                         ) : row._addressPending === 'PHOTO' ? (
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>{row.address}</span>
-                              <span className="text-[11px] text-amber-700 bg-amber-50 ring-1 ring-inset ring-amber-600/20 px-1.5 py-0.5 rounded-md font-medium">
-                                사진주소
-                              </span>
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{row.address}</span>
+                                <span className="text-[11px] text-amber-700 bg-amber-50 ring-1 ring-inset ring-amber-600/20 px-1.5 py-0.5 rounded-md font-medium">
+                                  사진주소
+                                </span>
+                              </div>
+                              {row._jibunAddress && row._jibunAddress !== row.address && (
+                                <div className="text-[11px] text-slate-400 mt-0.5">
+                                  지번: {row._jibunAddress}
+                                </div>
+                              )}
                             </div>
                             {onConfirmAddressField && (
                               <button
@@ -1144,15 +1172,22 @@ export default function ShippingGrid({
                           </div>
                         ) : row._addressPending === 'NEW' ? (
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-medium">{row.address}</span>
-                              <span className="text-[11px] text-blue-700 bg-blue-50 ring-1 ring-inset ring-blue-600/20 px-1.5 py-0.5 rounded-md font-medium">
-                                신규
-                              </span>
-                              {row._aiNote && (
-                                <span className="text-[11px] font-medium text-rose-600 bg-rose-50 ring-1 ring-inset ring-rose-500/15 px-1.5 py-0.5 rounded-md">
-                                  {row._aiNote}
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-medium">{row.address}</span>
+                                <span className="text-[11px] text-blue-700 bg-blue-50 ring-1 ring-inset ring-blue-600/20 px-1.5 py-0.5 rounded-md font-medium">
+                                  신규
                                 </span>
+                                {row._aiNote && (
+                                  <span className="text-[11px] font-medium text-rose-600 bg-rose-50 ring-1 ring-inset ring-rose-500/15 px-1.5 py-0.5 rounded-md">
+                                    {row._aiNote}
+                                  </span>
+                                )}
+                              </div>
+                              {row._jibunAddress && row._jibunAddress !== row.address && (
+                                <div className="text-[11px] text-slate-400 mt-0.5">
+                                  지번: {row._jibunAddress}
+                                </div>
                               )}
                             </div>
                             {onConfirmAddressField && row.address.trim() && (
@@ -1173,7 +1208,14 @@ export default function ShippingGrid({
                             사진 전송 · 주소 직접 입력 필요
                           </span>
                         ) : (
-                          <span>{row.address}</span>
+                          <div>
+                            <span>{row.address}</span>
+                            {row._jibunAddress && row._jibunAddress !== row.address && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">
+                                지번: {row._jibunAddress}
+                              </div>
+                            )}
+                          </div>
                         )}
                       </td>
 

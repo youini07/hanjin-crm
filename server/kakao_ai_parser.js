@@ -13,6 +13,7 @@ const {
     isSameRepresentativeAddress,
     compareCustomerName,
     compareDetailAddress,
+    stripRedundantJibunPrefix,
 } = require('./utils/normalizer');
 
 /**
@@ -394,6 +395,19 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
     }
 
     // 4단계: 주문별 셀 단위(이름/주소) 변경 판정
+    const officialAddrCache = new Map();
+    const cachedLookupOfficialAddress = async (baseAddr, altBaseAddr) => {
+        if (!hasAddressApi) return { found: false };
+        const key = `${String(baseAddr || '').trim()}||${String(altBaseAddr || '').trim()}`;
+        if (!key || key === '||') return { found: false };
+        if (officialAddrCache.has(key)) {
+            return officialAddrCache.get(key);
+        }
+        const res = await lookupOfficialAddress(baseAddr, altBaseAddr, addressKeys);
+        officialAddrCache.set(key, res);
+        return res;
+    };
+
     const items = await mapWithConcurrency(dedupedOrders, 5, async (ord) => {
         const phone = ord._normPhone;
         const dbCustomer = dbMap.get(phone) || null;
@@ -413,6 +427,9 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             if (dbCustomer) {
                 const nameComp = compareCustomerName(ord.name, ord.alt_name, dbCustomer.name);
                 const nameChanged = Boolean(ord.name && ord.name.trim() && !nameComp.isSame);
+                const dbOfficial = dbCustomer.address
+                    ? await cachedLookupOfficialAddress(dbCustomer.address, '')
+                    : { found: false };
 
                 return {
                     phone,
@@ -420,6 +437,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                     zipcode: normalizeZipcode(dbCustomer.zipcode),
                     address: dbCustomer.address || '',
                     detail_address: dbCustomer.detail_address || '',
+                    _jibunAddress: dbOfficial.found ? dbOfficial.jibunAddress || '' : '',
                     quantity,
                     _fbName: cleanFbName || dbCustomer.fb_name || '',
                     _fbUpdated: fbUpdated,
@@ -491,10 +509,9 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
 
             let officialAddr = { found: false };
             if (!sameRepAddr && hasAddressApi) {
-                officialAddr = await lookupOfficialAddress(
+                officialAddr = await cachedLookupOfficialAddress(
                     ord.base_address,
-                    ord.alt_base_address,
-                    addressKeys
+                    ord.alt_base_address
                 );
                 if (officialAddr.found) {
                     sameRepAddr = isSameRepresentativeAddress({
@@ -506,10 +523,26 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                         officialAddr,
                     });
                 }
+            } else if (sameRepAddr && hasAddressApi) {
+                // 지번주소 병기 표시 및 '514-7201호' 같은 중복 지번 접두어 분리를 위해 공식 주소 조회
+                officialAddr = await cachedLookupOfficialAddress(
+                    ord.base_address || dbCustomer.address,
+                    ord.alt_base_address
+                );
             }
 
+            const jibunSplit = stripRedundantJibunPrefix(
+                ord.detail_address,
+                officialAddr.found ? officialAddr.jibunAddress : ''
+            );
+            const cleanedChatDetail = jibunSplit.detail;
+            if (jibunSplit.strippedJibun) {
+                warningTags.push(`지번(${jibunSplit.strippedJibun}) 분리`);
+            }
+            const officialJibunAddress = officialAddr.found ? officialAddr.jibunAddress || '' : '';
+
             const nameComp = compareCustomerName(ord.name, ord.alt_name, dbCustomer.name);
-            const detailComp = compareDetailAddress(ord.detail_address, dbCustomer.detail_address);
+            const detailComp = compareDetailAddress(cleanedChatDetail, dbCustomer.detail_address);
 
             // [2-A] 대표주소가 기존 DB와 동일한 경우 -> 상세주소(동·호수)까지 같을 때만 주소 유지!
             if (sameRepAddr) {
@@ -522,6 +555,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                             zipcode: normalizeZipcode(dbCustomer.zipcode),
                             address: dbCustomer.address || '',
                             detail_address: dbCustomer.detail_address || '',
+                            _jibunAddress: officialJibunAddress,
                             quantity,
                             _fbName: cleanFbName || dbCustomer.fb_name || '',
                             _fbUpdated: fbUpdated,
@@ -541,6 +575,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                             zipcode: normalizeZipcode(dbCustomer.zipcode),
                             address: dbCustomer.address || '',
                             detail_address: dbCustomer.detail_address || '',
+                            _jibunAddress: officialJibunAddress,
                             quantity,
                             _fbName: cleanFbName || dbCustomer.fb_name || '',
                             _fbUpdated: fbUpdated,
@@ -571,6 +606,7 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                         zipcode: normalizeZipcode(dbCustomer.zipcode),
                         address: dbCustomer.address || '',
                         detail_address: detailComp.cleanDetail,
+                        _jibunAddress: officialJibunAddress,
                         quantity,
                         _fbName: cleanFbName || dbCustomer.fb_name || '',
                         _fbUpdated: fbUpdated,
@@ -593,10 +629,9 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
 
             // [2-B] 대표주소가 달라진 경우 (이사 또는 고객 번지 오타!) -> 주소 칸에 [수정] 표시 (+ 이름도 바뀌었으면 이름 칸에도 [수정])
             if (!officialAddr.found && hasAddressApi) {
-                officialAddr = await lookupOfficialAddress(
+                officialAddr = await cachedLookupOfficialAddress(
                     ord.base_address,
-                    ord.alt_base_address,
-                    addressKeys
+                    ord.alt_base_address
                 );
             }
 
@@ -645,7 +680,8 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
                 name: nameChanged ? nameComp.cleanName : dbCustomer.name,
                 zipcode: newZipcode,
                 address: newBaseAddress,
-                detail_address: String(ord.detail_address || '').trim(),
+                detail_address: cleanedChatDetail,
+                _jibunAddress: officialAddr.found ? officialAddr.jibunAddress || '' : officialJibunAddress,
                 quantity,
                 _fbName: cleanFbName || dbCustomer.fb_name || '',
                 _fbUpdated: fbUpdated,
@@ -671,11 +707,18 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
         // ──────────────────────────────────────────────────────────────────
         let officialAddr = { found: false };
         if (hasAddressApi) {
-            officialAddr = await lookupOfficialAddress(
+            officialAddr = await cachedLookupOfficialAddress(
                 ord.base_address,
-                ord.alt_base_address,
-                addressKeys
+                ord.alt_base_address
             );
+        }
+
+        const newJibunSplit = stripRedundantJibunPrefix(
+            ord.detail_address,
+            officialAddr.found ? officialAddr.jibunAddress : ''
+        );
+        if (newJibunSplit.strippedJibun) {
+            warningTags.push(`지번(${newJibunSplit.strippedJibun}) 분리`);
         }
 
         if (officialAddr.usedFallbackCandidate) {
@@ -708,7 +751,8 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             name: cleanName,
             zipcode: newZipcode,
             address: newBaseAddress,
-            detail_address: String(ord.detail_address || '').trim(),
+            detail_address: newJibunSplit.detail,
+            _jibunAddress: officialAddr.found ? officialAddr.jibunAddress || '' : '',
             quantity,
             _fbName: cleanFbName,
             _fbUpdated: Boolean(cleanFbName),
