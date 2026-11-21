@@ -258,16 +258,89 @@ function isSameRepresentativeAddress({ chatBaseAddr, chatRawAddr, dbAddress, dbD
 
     // 4단계: 구/군 단위 없이 단순 텍스트 정규화 포함 여부 보조 확인 (번지 숫자까지 반드시 일치해야 함)
     const cleanStr = (s) => String(s || '').replace(/\s+/g, '').replace(/[().,-]/g, '');
-    const chatNums = (chatBaseAddr || '').match(/\d+(?:-\d+)?/g) || [];
+    const baseWithoutDetail = String(chatBaseAddr || '')
+        .replace(/(\d+(?:-\d+)?)\s+\d+(?:-\d+)?\s*(?:동|호|층|방)?.*$/, '$1')
+        .trim();
+    const chatNums = baseWithoutDetail.match(/\d+(?:-\d+)?/g) || [];
     const dbNums = (dbAddress || '').match(/\d+(?:-\d+)?/g) || [];
     if (chatNums.length > 0 && dbNums.length > 0) {
         const mainChatNum = chatNums[chatNums.length - 1];
-        if (dbNums.includes(mainChatNum) && cleanStr(dbAddress).includes(cleanStr(chatBaseAddr))) {
+        if (dbNums.includes(mainChatNum) && cleanStr(dbAddress).includes(cleanStr(baseWithoutDetail))) {
             return true;
         }
     }
 
     return false;
+}
+
+/**
+ * 기존 DB 상세주소와 새 채팅 상세주소의 핵심 동·호수 변경 여부 비교
+ * 왜 필요한가:
+ * 대표주소(도로명+건물번호)가 같더라도 같은 건물 내 다른 호수('대창그린빌107호' -> '514-7201호')로
+ * 주문이 들어온 경우 기존 DB 상세주소가 새 호수를 덮어쓰는 오배송 사고를 방지하기 위함.
+ * 반면 '대창그린빌107호' vs '107호 부재시 문앞'처럼 핵심 호수가 동일한 경우 불필요한 수정 알림을 막음.
+ *
+ * @returns {{ isSame: boolean, cleanDetail: string }}
+ */
+function compareDetailAddress(chatDetail, dbDetail) {
+    const cleanChat = String(chatDetail || '').replace(/\s+/g, ' ').trim();
+    const cleanDb = String(dbDetail || '').replace(/\s+/g, ' ').trim();
+
+    if (!cleanChat) {
+        return { isSame: true, cleanDetail: cleanDb };
+    }
+    if (!cleanDb) {
+        return { isSame: false, cleanDetail: cleanChat };
+    }
+
+    const normText = (s) =>
+        String(s || '')
+            .replace(/\s+/g, '')
+            .replace(/[()[\].,·\-_]/g, '')
+            .toLowerCase();
+
+    if (normText(cleanChat) === normText(cleanDb)) {
+        return { isSame: true, cleanDetail: cleanDb };
+    }
+
+    // 배송 메모 및 현관 비밀번호(#1234*, *1234# 등)를 제외한 순수 호수 영역에서 핵심 숫자 추출
+    const stripMemoAndCodes = (s) =>
+        String(s || '')
+            .replace(/\([^)]*(?:현관|비번|비밀번호|문앞|부재|경비|택배)[^)]*\)/gi, ' ')
+            .replace(/[#*]\s*\d+\s*[#*]?/g, ' ')
+            .replace(/(?:현관|공동현관|비번|비밀번호)\s*[:：]?\s*[0-9*#]+/gi, ' ')
+            .replace(/(?:부재\s*시|문\s*앞|경비실|택배함|조심히|연락\s*주세요|전화\s*주세요).*/gi, ' ')
+            .trim();
+
+    const extractUnitNumbers = (s) =>
+        (stripMemoAndCodes(s).match(/\d+(?:-\d+)?/g) || []).map((n) => n.replace(/^0+(?=\d)/, ''));
+
+    const chatNums = extractUnitNumbers(cleanChat);
+    const dbNums = extractUnitNumbers(cleanDb);
+
+    if (chatNums.length > 0 && dbNums.length > 0) {
+        const allChatNumsInDb =
+            chatNums.every((n) => dbNums.includes(n)) &&
+            (chatNums.length === dbNums.length ||
+                dbNums.every((n) => chatNums.includes(n)) ||
+                chatNums.length === 1);
+        if (allChatNumsInDb) {
+            return { isSame: true, cleanDetail: cleanDb };
+        }
+        return { isSame: false, cleanDetail: cleanChat };
+    }
+
+    if (chatNums.length !== dbNums.length) {
+        return { isSame: false, cleanDetail: cleanChat };
+    }
+
+    const nChat = normText(stripMemoAndCodes(cleanChat));
+    const nDb = normText(stripMemoAndCodes(cleanDb));
+    if (nChat && nDb && (nChat.includes(nDb) || nDb.includes(nChat))) {
+        return { isSame: true, cleanDetail: cleanDb };
+    }
+
+    return { isSame: false, cleanDetail: cleanChat };
 }
 
 /**
@@ -338,4 +411,5 @@ module.exports = {
     extractCoreAddressTokens,
     isSameRepresentativeAddress,
     compareCustomerName,
+    compareDetailAddress,
 };

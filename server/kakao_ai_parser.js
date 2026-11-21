@@ -12,6 +12,7 @@ const {
     extractCoreAddressTokens,
     isSameRepresentativeAddress,
     compareCustomerName,
+    compareDetailAddress,
 } = require('./utils/normalizer');
 
 /**
@@ -146,7 +147,7 @@ const SYSTEM_INSTRUCTION = `당신은 한국 택배 송장 정리를 돕는 다�
 3. "이 주소로 4장 출력해 주세요." 같은 요청은 해당 주문의 quantity에 반영하세요.
 4. 말풍선에 "사진"이라 적혀 있고 텍스트 기본주소가 없는 경우(호수만 텍스트로 있어도 기본주소가 사진이면) 반드시 has_text_address = false로 설정하되, 전화번호가 있으면 절대 누락하지 말고 포함하세요.
 5. 전화번호는 +821024644186, 010 - 26018073, 010-759-39711, 010이 생략된 8자리(3938-1544)까지 추출하되, 5자리 우편번호나 현관 비밀번호는 절대 전화번호로 넣지 마세요.
-6. 기본주소(base_address)와 상세주소(detail_address)를 정확히 분리하고, 어순 역전("28 방내시장길"->"방내시장길 28") 및 외국인 지명 오타("계옹상북도"->"경상북도", "사복중앙로"->"사북중앙로", "수 섬3길"->"수성3길", "상북도 문경시"->"경상북도 문경시", "주거제시"->"경남 거제시")를 보정해 base_address에 넣으세요. 오타를 보정했다면 has_typo=true와 짧은 typo_note를 남기세요.`;
+6. 기본주소(base_address)와 상세주소(detail_address)를 정확히 분리하고, 어순 역전("28 방내시장길"->"방내시장길 28") 및 외국인 지명 오타("계옹상북도"->"경상북도", "사복중앙로"->"사북중앙로", "수 섬3길"->"수성3길", "상북도 문경시"->"경상북도 문경시", "주거제시"->"경남 거제시")를 보정해 base_address에 넣으세요. 특히 "[산정공원로42번길 17] 514-7201호"나 "산정공원로42번길 17 107호"처럼 도로명+건물번호 뒤에 이어지는 숫자-숫자호, 동·호수는 절대 base_address의 건물번호(부번)에 합치지 말고 반드시 detail_address로 분리하세요. 오타를 보정했다면 has_typo=true와 짧은 typo_note를 남기세요.`;
 
 /**
  * 모바일 카카오톡 캡처(범위 캡처·스크롤 캡처 포함) 이미지 전용 텍스트 추출 지침
@@ -508,46 +509,78 @@ async function analyzeKakaoChatWithAI(rawText, settings = {}) {
             }
 
             const nameComp = compareCustomerName(ord.name, ord.alt_name, dbCustomer.name);
+            const detailComp = compareDetailAddress(ord.detail_address, dbCustomer.detail_address);
 
-            // [2-A] 대표주소가 기존 DB와 동일한 경우 -> 주소 칸은 건드리지 않음!
+            // [2-A] 대표주소가 기존 DB와 동일한 경우 -> 상세주소(동·호수)까지 같을 때만 주소 유지!
             if (sameRepAddr) {
-                if (nameComp.isSame) {
-                    // 이름·주소 모두 동일 -> 완전 일치!
-                    return {
-                        phone,
-                        name: dbCustomer.name,
-                        zipcode: normalizeZipcode(dbCustomer.zipcode),
-                        address: dbCustomer.address || '',
-                        detail_address: dbCustomer.detail_address || '',
-                        quantity,
-                        _fbName: cleanFbName || dbCustomer.fb_name || '',
-                        _fbUpdated: fbUpdated,
-                        _isNew: false,
-                        _reviewStatus: 'MATCHED',
-                        _namePending: false,
-                        _addressPending: null,
-                        _isConfirmed: true,
-                        _needsAddressCheck: false,
-                        _aiNote: ord._duplicateCount > 1 ? `중복채팅 ${ord._duplicateCount}회` : '',
-                    };
+                if (detailComp.isSame) {
+                    if (nameComp.isSame) {
+                        // 이름·주소·상세주소 모두 동일 -> 완전 일치!
+                        return {
+                            phone,
+                            name: dbCustomer.name,
+                            zipcode: normalizeZipcode(dbCustomer.zipcode),
+                            address: dbCustomer.address || '',
+                            detail_address: dbCustomer.detail_address || '',
+                            quantity,
+                            _fbName: cleanFbName || dbCustomer.fb_name || '',
+                            _fbUpdated: fbUpdated,
+                            _isNew: false,
+                            _reviewStatus: 'MATCHED',
+                            _namePending: false,
+                            _addressPending: null,
+                            _isConfirmed: true,
+                            _needsAddressCheck: false,
+                            _aiNote: ord._duplicateCount > 1 ? `중복채팅 ${ord._duplicateCount}회` : '',
+                        };
+                    } else {
+                        // 이름만 바뀐 경우 -> 이름 칸에만 '기존 -> 새 이름 [수정]' 버튼 표시!
+                        return {
+                            phone,
+                            name: nameComp.cleanName,
+                            zipcode: normalizeZipcode(dbCustomer.zipcode),
+                            address: dbCustomer.address || '',
+                            detail_address: dbCustomer.detail_address || '',
+                            quantity,
+                            _fbName: cleanFbName || dbCustomer.fb_name || '',
+                            _fbUpdated: fbUpdated,
+                            _isNew: false,
+                            _reviewStatus: 'MODIFIED',
+                            _namePending: true,
+                            _addressPending: null,
+                            _isConfirmed: false,
+                            _needsAddressCheck: false,
+                            _aiNote: '',
+                            _prevDbInfo: {
+                                name: dbCustomer.name || '',
+                                zipcode: normalizeZipcode(dbCustomer.zipcode),
+                                address: dbCustomer.address || '',
+                                detail_address: dbCustomer.detail_address || '',
+                            },
+                        };
+                    }
                 } else {
-                    // 이름만 바뀐 경우 -> 이름 칸에만 '기존 -> 새 이름 [수정]' 버튼 표시!
+                    // 대표주소는 같지만 상세주소(동·호수 등)가 달라진 경우 -> 주소 칸에 [수정] 표시!
+                    const nameChanged = !nameComp.isSame && Boolean(nameComp.cleanName);
+                    warningTags.unshift(
+                        `상세주소 변경 (기존: ${dbCustomer.detail_address || '없음'} → 입력: ${detailComp.cleanDetail})`
+                    );
                     return {
                         phone,
-                        name: nameComp.cleanName,
+                        name: nameChanged ? nameComp.cleanName : dbCustomer.name,
                         zipcode: normalizeZipcode(dbCustomer.zipcode),
                         address: dbCustomer.address || '',
-                        detail_address: dbCustomer.detail_address || '',
+                        detail_address: detailComp.cleanDetail,
                         quantity,
                         _fbName: cleanFbName || dbCustomer.fb_name || '',
                         _fbUpdated: fbUpdated,
                         _isNew: false,
                         _reviewStatus: 'MODIFIED',
-                        _namePending: true,
-                        _addressPending: null,
+                        _namePending: nameChanged,
+                        _addressPending: 'MODIFIED',
                         _isConfirmed: false,
-                        _needsAddressCheck: false,
-                        _aiNote: '',
+                        _needsAddressCheck: true,
+                        _aiNote: warningTags.join(' · '),
                         _prevDbInfo: {
                             name: dbCustomer.name || '',
                             zipcode: normalizeZipcode(dbCustomer.zipcode),
